@@ -14,6 +14,7 @@ Item {
 		x: 30;
 		y: 30;
 		width: 200;
+		height: 30;
 		border.width: 1;
 		border.color: "#000";
 	}
@@ -27,6 +28,15 @@ Item {
 
 		onClicked: {
 			playlistLoader.url = playlistInput.text
+		}
+
+		Text {
+			y: 5;
+			width: 100%;
+			text: "Check";
+			horizontalAlignment: Text.AlignHCenter;
+			font.pixelSize: 20;
+			color: "#000";
 		}
 	}
 
