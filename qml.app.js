@@ -1523,69 +1523,6 @@ $this.completed()
 }
 
 
-//=====[component controls.core.Request]=====================
-
-	var RequestBaseComponent = $core.Object
-	var RequestBasePrototype = RequestBaseComponent.prototype
-
-/**
- * @constructor
- * @extends {$core.Object}
- */
-	var RequestComponent = $controls$core.Request = function(parent, row) {
-		RequestBaseComponent.apply(this, arguments)
-
-	}
-	var RequestPrototype = RequestComponent.prototype = Object.create(RequestBasePrototype)
-
-	RequestPrototype.constructor = RequestComponent
-
-	RequestPrototype.componentName = 'controls.core.Request'
-	core.addProperty(RequestPrototype, 'bool', 'loading', (false))
-	RequestPrototype.ajax = function(request) {
-		var url = request.url
-		var error = request.error,
-			headers = request.headers,
-			done = request.done,
-			settings = request.settings
-
-		var xhr = new XMLHttpRequest()
-
-		var self = this
-		var ctx = this._context
-		if (error)
-			xhr.addEventListener('error', ctx.wrapNativeCallback(function(event) { self.loading = false; log("Error"); error(event); }))
-
-		if (done)
-			xhr.addEventListener('load', ctx.wrapNativeCallback(function(event) { self.loading = false; done(event); }))
-
-		xhr.open(request.method || 'GET', url);
-
-		for (var i in settings)
-			xhr[i] = settings[i]
-
-		for (var i in headers)
-			xhr.setRequestHeader(i, headers[i])
-
-		this.loading = true
-		if (request.data)
-			xhr.send(request.data)
-		else
-			xhr.send()
-	}
-
-	RequestPrototype.$c = function($c) {
-		var $this = this;
-		RequestBasePrototype.$c.call(this, $c.$b = { })
-
-	}
-	RequestPrototype.$s = function($c) {
-		var $this = this;
-	RequestBasePrototype.$s.call(this, $c.$b); delete $c.$b
-$this.completed()
-}
-
-
 //=====[component controls.core.PlaceHolder]=====================
 
 	var PlaceHolderBaseComponent = $core.Object
@@ -2174,245 +2111,6 @@ $this.completed()
 }
 
 
-//=====[component controls.input.BaseInput]=====================
-
-	var BaseInputBaseComponent = $core.Item
-	var BaseInputBasePrototype = BaseInputBaseComponent.prototype
-
-/**
- * @constructor
- * @extends {$core.Item}
- */
-	var BaseInputComponent = $controls$input.BaseInput = function(parent, row) {
-		BaseInputBaseComponent.apply(this, arguments)
-	//custom constructor:
-	{
-		this._placeholderClass = ''
-		this.element.on("focus", function() { this.forceActiveFocus(); }.bind(this))
-		this.element.on("blur", function() { this.forceActiveFocus(); }.bind(this))
-	}
-
-	}
-	var BaseInputPrototype = BaseInputComponent.prototype = Object.create(BaseInputBasePrototype)
-
-	BaseInputPrototype.constructor = BaseInputComponent
-
-	BaseInputPrototype.componentName = 'controls.input.BaseInput'
-	core.addLazyProperty(BaseInputPrototype, 'paddings', (function(__parent, __row) {
-		var lazy$paddings = new $controls$core.Paddings(__parent, __row)
-		var $c = { lazy$paddings : lazy$paddings }
-
-//creating component Paddings
-			lazy$paddings.$c($c.$c$lazy$paddings = { })
-
-
-//setting up component Paddings
-			var lazy$paddings = $c.lazy$paddings
-			lazy$paddings.$s($c.$c$lazy$paddings)
-			delete $c.$c$lazy$paddings
-
-
-			lazy$paddings.completed()
-
-		return lazy$paddings
-}))
-	core.addProperty(BaseInputPrototype, 'Color', 'color', ("#000"))
-	core.addProperty(BaseInputPrototype, 'Color', 'backgroundColor', ("#fff"))
-	core.addProperty(BaseInputPrototype, 'Font', 'font')
-	core.addProperty(BaseInputPrototype, 'Border', 'border')
-	core.addProperty(BaseInputPrototype, 'string', 'type', ("text"))
-	core.addProperty(BaseInputPrototype, 'PlaceHolder', 'placeholder')
-	core.addProperty(BaseInputPrototype, 'bool', 'enabled', (true))
-/** @const @type {number} */
-	BaseInputPrototype.AlignLeft = 0
-/** @const @type {number} */
-	BaseInputComponent.AlignLeft = 0
-/** @const @type {number} */
-	BaseInputPrototype.AlignRight = 1
-/** @const @type {number} */
-	BaseInputComponent.AlignRight = 1
-/** @const @type {number} */
-	BaseInputPrototype.AlignHCenter = 2
-/** @const @type {number} */
-	BaseInputComponent.AlignHCenter = 2
-/** @const @type {number} */
-	BaseInputPrototype.Justify = 3
-/** @const @type {number} */
-	BaseInputComponent.Justify = 3
-	core.addProperty(BaseInputPrototype, 'enum', 'horizontalAlignment')
-	BaseInputPrototype._updateSize = function() {
-		var style = { width: this.width, height: this.height }
-		this.style(style)
-	}
-	BaseInputPrototype.focusBrowser = function() {
-	var focusTimer = this._get('focusTimer', true)
-
-		focusTimer.restart()
-	}
-	BaseInputPrototype.blurBrowser = function() {
-	var focusTimer = this._get('focusTimer', true)
-
-		focusTimer.stop()
-		this.element.dom.blur()
-	}
-	BaseInputPrototype.getTag = function() { return 'input' }
-	BaseInputPrototype.registerStyle = function(style) {
-		style.addRule('input', "position: absolute; visibility: inherit; border-style: solid; border-width: 0px; box-sizing: border-box;")
-		style.addRule('input:focus', "outline: none;")
-	}
-	$core._protoOnChanged(BaseInputPrototype, 'recursiveVisible', function(value) {
-		if (!value)
-			this.blurBrowser()
-	})
-	$core._protoOnChanged(BaseInputPrototype, 'activeFocus', function(value) {
-		if (value)
-			this.focusBrowser()
-		else
-			this.blurBrowser()
-	})
-	$core._protoOnChanged(BaseInputPrototype, 'horizontalAlignment', function(value) {
-		switch(value) {
-		case this.AlignLeft:	this.style('text-align', 'left'); break
-		case this.AlignRight:	this.style('text-align', 'right'); break
-		case this.AlignHCenter:	this.style('text-align', 'center'); break
-		case this.AlignJustify:	this.style('text-align', 'justify'); break
-		}
-	})
-	$core._protoOnChanged(BaseInputPrototype, 'enabled', function(value) {
-		this.element.dom.disabled = !value
-	})
-	var $code$0 = function(value) { this._updateSize() }
-	$core._protoOnChanged(BaseInputPrototype, 'height', $code$0)
-	$core._protoOnChanged(BaseInputPrototype, 'width', $code$0)
-	$core._protoOnChanged(BaseInputPrototype, 'type', function(value) { this.element.dom.type = value })
-	$core._protoOnChanged(BaseInputPrototype, 'backgroundColor', function(value) { this.style('background', value) })
-	$core._protoOnChanged(BaseInputPrototype, 'color', function(value) { this.style('color', value) })
-
-	BaseInputPrototype.$c = function($c) {
-		var $this = this;
-		BaseInputBasePrototype.$c.call(this, $c.$b = { })
-var _this$child0 = new $core.Timer($this)
-		$c._this$child0 = _this$child0
-
-//creating component Timer
-		_this$child0.$c($c.$c$_this$child0 = { })
-		_this$child0._setId('focusTimer')
-		$this.addChild(_this$child0)
-//creating component controls.input.<anonymous>
-		var _this$placeholder = new $controls$core.PlaceHolder($this)
-		$c._this$placeholder = _this$placeholder
-
-//creating component PlaceHolder
-		_this$placeholder.$c($c.$c$_this$placeholder = { })
-
-		$this.placeholder = _this$placeholder
-//creating component controls.input.<anonymous>
-		var _this$font = new $core.Font($this)
-		$c._this$font = _this$font
-
-//creating component Font
-		_this$font.$c($c.$c$_this$font = { })
-
-		$this.font = _this$font
-//creating component controls.input.<anonymous>
-		var _this$border = new $core.Border($this)
-		$c._this$border = _this$border
-
-//creating component Border
-		_this$border.$c($c.$c$_this$border = { })
-
-		$this.border = _this$border
-	}
-	BaseInputPrototype.$s = function($c) {
-		var $this = this;
-	BaseInputBasePrototype.$s.call(this, $c.$b); delete $c.$b
-//setting up component PlaceHolder
-			var _this$placeholder = $c._this$placeholder
-			_this$placeholder.$s($c.$c$_this$placeholder)
-			delete $c.$c$_this$placeholder
-
-
-			_this$placeholder.completed()
-
-//setting up component Font
-			var _this$font = $c._this$font
-			_this$font.$s($c.$c$_this$font)
-			delete $c.$c$_this$font
-
-
-			_this$font.completed()
-
-//setting up component Border
-			var _this$border = $c._this$border
-			_this$border.$s($c.$c$_this$border)
-			delete $c.$c$_this$border
-
-
-			_this$border.completed()
-
-//setting up component Timer
-			var _this$child0 = $c._this$child0
-			_this$child0.$s($c.$c$_this$child0)
-			delete $c.$c$_this$child0
-
-//assigning interval to (100)
-			_this$child0._removeUpdater('interval'); _this$child0.interval = (100);
-			_this$child0.on('triggered', function() {
-			this.parent.element.dom.focus()
-			this.parent.element.dom.select()
-		}.bind(_this$child0))
-
-			_this$child0.completed()
-
-			$this.completed()
-}
-
-
-//=====[component controls.input.TextInput]=====================
-
-	var TextInputBaseComponent = $controls$input.BaseInput
-	var TextInputBasePrototype = TextInputBaseComponent.prototype
-
-/**
- * @constructor
- * @extends {$controls$input.BaseInput}
- */
-	var TextInputComponent = $controls$input.TextInput = function(parent, row) {
-		TextInputBaseComponent.apply(this, arguments)
-	//custom constructor:
-	{
-		this.element.on("input", function() { this.text = this.element.dom.value }.bind(this))
-	}
-
-	}
-	var TextInputPrototype = TextInputComponent.prototype = Object.create(TextInputBasePrototype)
-
-	TextInputPrototype.constructor = TextInputComponent
-
-	TextInputPrototype.componentName = 'controls.input.TextInput'
-	core.addProperty(TextInputPrototype, 'string', 'text')
-	core.addProperty(TextInputPrototype, 'bool', 'passwordMode', (false))
-	$core._protoOnChanged(TextInputPrototype, 'text', function(value) { if (value != this.element.dom.value) this.element.dom.value = value; })
-
-	TextInputPrototype.$c = function($c) {
-		var $this = this;
-		TextInputBasePrototype.$c.call(this, $c.$b = { })
-
-	}
-	TextInputPrototype.$s = function($c) {
-		var $this = this;
-	TextInputBasePrototype.$s.call(this, $c.$b); delete $c.$b
-//assigning width to (173)
-			$this._removeUpdater('width'); $this.width = (173);
-//assigning type to (${passwordMode} ? "password" : "text")
-			$this._replaceUpdater('type', function() { $this.type = ($this.passwordMode ? "password" : "text") }, [$this,'passwordMode'])
-//assigning height to (20)
-			$this._removeUpdater('height'); $this.height = (20);
-
-			$this.completed()
-}
-
-
 //=====[component controls.core.BaseActivity]=====================
 
 	var BaseActivityBaseComponent = $core.Item
@@ -2891,38 +2589,62 @@ $this.completed()
 	UiAppPrototype.constructor = UiAppComponent
 
 	UiAppPrototype.componentName = 'src.UiApp'
+	UiAppPrototype.processData = function() {
+	var playlistInput = this._get('playlistInput', true)
+
+		var lines = playlistInput.text.split('\n');
+		this._data = []
+		for (var i = 0; i < lines.length - 1; ++i) {
+			var line = lines[i]
+			var nextLine = lines[i + 1]
+			if (line.indexOf('#EXTINF') == 0 && nextLine.indexOf('http') == 0) {
+				var comaPos = line.indexOf(',')
+				if (comaPos < 0)
+					continue
+				var title = line.substring(comaPos + 1, line.length)
+				if (title.indexOf('==') < 0)
+					this._data.push({'title': title, 'playlist': nextLine})
+			} else if (line.indexOf('#EXTINF') == 0 && (i < lines.length - 2 && lines[i + 2].indexOf('http') == 0)) {
+				var comaPos = line.indexOf(',')
+				if (comaPos < 0)
+					continue
+				var title = line.substring(comaPos + 1, line.length)
+				if (title.indexOf('==') < 0)
+					this._data.push({'title': title, 'playlist': lines[i + 2]})
+			}
+		}
+	}
 
 	UiAppPrototype.$c = function($c) {
 		var $this = this;
 		UiAppBasePrototype.$c.call(this, $c.$b = { })
-var _this$child0 = new $controls$core.Resource($this)
+var _this$child0 = new $controls$input.TextAreaInput($this)
 		$c._this$child0 = _this$child0
 
-//creating component Resource
+//creating component TextAreaInput
 		_this$child0.$c($c.$c$_this$child0 = { })
-		_this$child0._setId('playlistLoader')
+		_this$child0._setId('playlistInput')
 		$this.addChild(_this$child0)
-		var _this$child1 = new $controls$input.TextInput($this)
+		var _this$child1 = new $controls$web.WebItem($this)
 		$c._this$child1 = _this$child1
 
-//creating component TextInput
+//creating component WebItem
 		_this$child1.$c($c.$c$_this$child1 = { })
-		_this$child1._setId('playlistInput')
+		var _this_child1$child0 = new $core.Text(_this$child1)
+		$c._this_child1$child0 = _this_child1$child0
+
+//creating component Text
+		_this_child1$child0.$c($c.$c$_this_child1$child0 = { })
+
+		_this$child1.addChild(_this_child1$child0)
 		$this.addChild(_this$child1)
-		var _this$child2 = new $controls$web.WebItem($this)
+		var _this$child2 = new $core.VideoPlayer($this)
 		$c._this$child2 = _this$child2
 
-//creating component WebItem
+//creating component VideoPlayer
 		_this$child2.$c($c.$c$_this$child2 = { })
 
 		$this.addChild(_this$child2)
-		var _this$child3 = new $core.VideoPlayer($this)
-		$c._this$child3 = _this$child3
-
-//creating component VideoPlayer
-		_this$child3.$c($c.$c$_this$child3 = { })
-
-		$this.addChild(_this$child3)
 	}
 	UiAppPrototype.$s = function($c) {
 		var $this = this;
@@ -2930,73 +2652,82 @@ var _this$child0 = new $controls$core.Resource($this)
 //assigning anchors.fill to (${context})
 			$this.anchors._replaceUpdater('fill', function() { $this.anchors.fill = ($this._context) }, [$this,'context'])
 
-//setting up component Resource
+//setting up component TextAreaInput
 			var _this$child0 = $c._this$child0
 			_this$child0.$s($c.$c$_this$child0)
 			delete $c.$c$_this$child0
 
-			_this$child0.onChanged('data', function(value) {
-			log("GOT DATA", value)
-		}.bind(_this$child0))
+//assigning border.color to ("#000")
+			_this$child0.border._removeUpdater('color'); _this$child0.border.color = ("#000");
+//assigning width to (200)
+			_this$child0._removeUpdater('width'); _this$child0.width = (200);
+//assigning height to (200)
+			_this$child0._removeUpdater('height'); _this$child0.height = (200);
+//assigning border.width to (1)
+			_this$child0.border._removeUpdater('width'); _this$child0.border.width = (1);
+//assigning y to (30)
+			_this$child0._removeUpdater('y'); _this$child0.y = (30);
+//assigning x to (30)
+			_this$child0._removeUpdater('x'); _this$child0.x = (30);
 
 			_this$child0.completed()
 
-//setting up component TextInput
+//setting up component WebItem
 			var _this$child1 = $c._this$child1
 			_this$child1.$s($c.$c$_this$child1)
 			delete $c.$c$_this$child1
 
-//assigning border.color to ("#000")
-			_this$child1.border._removeUpdater('color'); _this$child1.border.color = ("#000");
-//assigning width to (200)
-			_this$child1._removeUpdater('width'); _this$child1.width = (200);
-//assigning border.width to (1)
-			_this$child1.border._removeUpdater('width'); _this$child1.border.width = (1);
 //assigning y to (30)
 			_this$child1._removeUpdater('y'); _this$child1.y = (30);
-//assigning x to (30)
-			_this$child1._removeUpdater('x'); _this$child1.x = (30);
+//assigning x to (240)
+			_this$child1._removeUpdater('x'); _this$child1.x = (240);
+//assigning height to (30)
+			_this$child1._removeUpdater('height'); _this$child1.height = (30);
+//assigning color to ("#ccc")
+			_this$child1._removeUpdater('color'); _this$child1.color = ("#ccc");
+//assigning width to (100)
+			_this$child1._removeUpdater('width'); _this$child1.width = (100);
+			_this$child1.on('clicked', function() {
+			this.parent.processData()
+		}.bind(_this$child1))
+
+//setting up component Text
+			var _this_child1$child0 = $c._this_child1$child0
+			_this_child1$child0.$s($c.$c$_this_child1$child0)
+			delete $c.$c$_this_child1$child0
+
+//assigning color to ("#000")
+			_this_child1$child0._removeUpdater('color'); _this_child1$child0.color = ("#000");
+//assigning text to ("Check")
+			_this_child1$child0._removeUpdater('text'); _this_child1$child0.text = ("Check");
+//assigning width to ((${parent.width}))
+			_this_child1$child0._replaceUpdater('width', function() { _this_child1$child0.width = ((_this_child1$child0.parent.width)) }, [_this_child1$child0.parent,'width'])
+//assigning horizontalAlignment to (_globals.core.Text.prototype.AlignHCenter)
+			_this_child1$child0._removeUpdater('horizontalAlignment'); _this_child1$child0.horizontalAlignment = (_globals.core.Text.prototype.AlignHCenter);
+//assigning font.pixelSize to (15)
+			_this_child1$child0.font._removeUpdater('pixelSize'); _this_child1$child0.font.pixelSize = (15);
+//assigning y to (5)
+			_this_child1$child0._removeUpdater('y'); _this_child1$child0.y = (5);
+
+			_this_child1$child0.completed()
 
 			_this$child1.completed()
 
-//setting up component WebItem
+//setting up component VideoPlayer
 			var _this$child2 = $c._this$child2
 			_this$child2.$s($c.$c$_this$child2)
 			delete $c.$c$_this$child2
 
-//assigning y to (30)
-			_this$child2._removeUpdater('y'); _this$child2.y = (30);
+//assigning y to (80)
+			_this$child2._removeUpdater('y'); _this$child2.y = (80);
 //assigning x to (240)
 			_this$child2._removeUpdater('x'); _this$child2.x = (240);
-//assigning height to (30)
-			_this$child2._removeUpdater('height'); _this$child2.height = (30);
-//assigning color to ("#ccc")
-			_this$child2._removeUpdater('color'); _this$child2.color = ("#ccc");
-//assigning width to (100)
-			_this$child2._removeUpdater('width'); _this$child2.width = (100);
-			_this$child2.on('clicked', function() {
-	var playlistInput = this._get('playlistInput', true), playlistLoader = this._get('playlistLoader', true)
-
-			playlistLoader.url = playlistInput.text
-		}.bind(_this$child2))
+//assigning height to (150)
+			_this$child2._removeUpdater('height'); _this$child2.height = (150);
+//assigning width to (200)
+			_this$child2._removeUpdater('width'); _this$child2.width = (200);
 
 			_this$child2.completed()
-
-//setting up component VideoPlayer
-			var _this$child3 = $c._this$child3
-			_this$child3.$s($c.$c$_this$child3)
-			delete $c.$c$_this$child3
-
-//assigning y to (80)
-			_this$child3._removeUpdater('y'); _this$child3.y = (80);
-//assigning x to (30)
-			_this$child3._removeUpdater('x'); _this$child3.x = (30);
-//assigning height to (150)
-			_this$child3._removeUpdater('height'); _this$child3.height = (150);
-//assigning width to (200)
-			_this$child3._removeUpdater('width'); _this$child3.width = (200);
-
-			_this$child3.completed()
 
 			$this.completed()
 }
@@ -3250,6 +2981,247 @@ var _this$child0 = new $core.PropertyStorage($this)
 			_this$child0._removeUpdater('name'); _this$child0.name = ("volume");
 
 			_this$child0.completed()
+
+			$this.completed()
+}
+
+
+//=====[component controls.input.BaseInput]=====================
+
+	var BaseInputBaseComponent = $core.Item
+	var BaseInputBasePrototype = BaseInputBaseComponent.prototype
+
+/**
+ * @constructor
+ * @extends {$core.Item}
+ */
+	var BaseInputComponent = $controls$input.BaseInput = function(parent, row) {
+		BaseInputBaseComponent.apply(this, arguments)
+	//custom constructor:
+	{
+		this._placeholderClass = ''
+		this.element.on("focus", function() { this.forceActiveFocus(); }.bind(this))
+		this.element.on("blur", function() { this.forceActiveFocus(); }.bind(this))
+	}
+
+	}
+	var BaseInputPrototype = BaseInputComponent.prototype = Object.create(BaseInputBasePrototype)
+
+	BaseInputPrototype.constructor = BaseInputComponent
+
+	BaseInputPrototype.componentName = 'controls.input.BaseInput'
+	core.addLazyProperty(BaseInputPrototype, 'paddings', (function(__parent, __row) {
+		var lazy$paddings = new $controls$core.Paddings(__parent, __row)
+		var $c = { lazy$paddings : lazy$paddings }
+
+//creating component Paddings
+			lazy$paddings.$c($c.$c$lazy$paddings = { })
+
+
+//setting up component Paddings
+			var lazy$paddings = $c.lazy$paddings
+			lazy$paddings.$s($c.$c$lazy$paddings)
+			delete $c.$c$lazy$paddings
+
+
+			lazy$paddings.completed()
+
+		return lazy$paddings
+}))
+	core.addProperty(BaseInputPrototype, 'Color', 'color', ("#000"))
+	core.addProperty(BaseInputPrototype, 'Color', 'backgroundColor', ("#fff"))
+	core.addProperty(BaseInputPrototype, 'Font', 'font')
+	core.addProperty(BaseInputPrototype, 'Border', 'border')
+	core.addProperty(BaseInputPrototype, 'string', 'type', ("text"))
+	core.addProperty(BaseInputPrototype, 'PlaceHolder', 'placeholder')
+	core.addProperty(BaseInputPrototype, 'bool', 'enabled', (true))
+/** @const @type {number} */
+	BaseInputPrototype.AlignLeft = 0
+/** @const @type {number} */
+	BaseInputComponent.AlignLeft = 0
+/** @const @type {number} */
+	BaseInputPrototype.AlignRight = 1
+/** @const @type {number} */
+	BaseInputComponent.AlignRight = 1
+/** @const @type {number} */
+	BaseInputPrototype.AlignHCenter = 2
+/** @const @type {number} */
+	BaseInputComponent.AlignHCenter = 2
+/** @const @type {number} */
+	BaseInputPrototype.Justify = 3
+/** @const @type {number} */
+	BaseInputComponent.Justify = 3
+	core.addProperty(BaseInputPrototype, 'enum', 'horizontalAlignment')
+	BaseInputPrototype._updateSize = function() {
+		var style = { width: this.width, height: this.height }
+		this.style(style)
+	}
+	BaseInputPrototype.focusBrowser = function() {
+	var focusTimer = this._get('focusTimer', true)
+
+		focusTimer.restart()
+	}
+	BaseInputPrototype.blurBrowser = function() {
+	var focusTimer = this._get('focusTimer', true)
+
+		focusTimer.stop()
+		this.element.dom.blur()
+	}
+	BaseInputPrototype.getTag = function() { return 'input' }
+	BaseInputPrototype.registerStyle = function(style) {
+		style.addRule('input', "position: absolute; visibility: inherit; border-style: solid; border-width: 0px; box-sizing: border-box;")
+		style.addRule('input:focus', "outline: none;")
+	}
+	$core._protoOnChanged(BaseInputPrototype, 'recursiveVisible', function(value) {
+		if (!value)
+			this.blurBrowser()
+	})
+	$core._protoOnChanged(BaseInputPrototype, 'activeFocus', function(value) {
+		if (value)
+			this.focusBrowser()
+		else
+			this.blurBrowser()
+	})
+	$core._protoOnChanged(BaseInputPrototype, 'horizontalAlignment', function(value) {
+		switch(value) {
+		case this.AlignLeft:	this.style('text-align', 'left'); break
+		case this.AlignRight:	this.style('text-align', 'right'); break
+		case this.AlignHCenter:	this.style('text-align', 'center'); break
+		case this.AlignJustify:	this.style('text-align', 'justify'); break
+		}
+	})
+	$core._protoOnChanged(BaseInputPrototype, 'enabled', function(value) {
+		this.element.dom.disabled = !value
+	})
+	var $code$0 = function(value) { this._updateSize() }
+	$core._protoOnChanged(BaseInputPrototype, 'height', $code$0)
+	$core._protoOnChanged(BaseInputPrototype, 'width', $code$0)
+	$core._protoOnChanged(BaseInputPrototype, 'type', function(value) { this.element.dom.type = value })
+	$core._protoOnChanged(BaseInputPrototype, 'backgroundColor', function(value) { this.style('background', value) })
+	$core._protoOnChanged(BaseInputPrototype, 'color', function(value) { this.style('color', value) })
+
+	BaseInputPrototype.$c = function($c) {
+		var $this = this;
+		BaseInputBasePrototype.$c.call(this, $c.$b = { })
+var _this$child0 = new $core.Timer($this)
+		$c._this$child0 = _this$child0
+
+//creating component Timer
+		_this$child0.$c($c.$c$_this$child0 = { })
+		_this$child0._setId('focusTimer')
+		$this.addChild(_this$child0)
+//creating component controls.input.<anonymous>
+		var _this$placeholder = new $controls$core.PlaceHolder($this)
+		$c._this$placeholder = _this$placeholder
+
+//creating component PlaceHolder
+		_this$placeholder.$c($c.$c$_this$placeholder = { })
+
+		$this.placeholder = _this$placeholder
+//creating component controls.input.<anonymous>
+		var _this$font = new $core.Font($this)
+		$c._this$font = _this$font
+
+//creating component Font
+		_this$font.$c($c.$c$_this$font = { })
+
+		$this.font = _this$font
+//creating component controls.input.<anonymous>
+		var _this$border = new $core.Border($this)
+		$c._this$border = _this$border
+
+//creating component Border
+		_this$border.$c($c.$c$_this$border = { })
+
+		$this.border = _this$border
+	}
+	BaseInputPrototype.$s = function($c) {
+		var $this = this;
+	BaseInputBasePrototype.$s.call(this, $c.$b); delete $c.$b
+//setting up component PlaceHolder
+			var _this$placeholder = $c._this$placeholder
+			_this$placeholder.$s($c.$c$_this$placeholder)
+			delete $c.$c$_this$placeholder
+
+
+			_this$placeholder.completed()
+
+//setting up component Font
+			var _this$font = $c._this$font
+			_this$font.$s($c.$c$_this$font)
+			delete $c.$c$_this$font
+
+
+			_this$font.completed()
+
+//setting up component Border
+			var _this$border = $c._this$border
+			_this$border.$s($c.$c$_this$border)
+			delete $c.$c$_this$border
+
+
+			_this$border.completed()
+
+//setting up component Timer
+			var _this$child0 = $c._this$child0
+			_this$child0.$s($c.$c$_this$child0)
+			delete $c.$c$_this$child0
+
+//assigning interval to (100)
+			_this$child0._removeUpdater('interval'); _this$child0.interval = (100);
+			_this$child0.on('triggered', function() {
+			this.parent.element.dom.focus()
+			this.parent.element.dom.select()
+		}.bind(_this$child0))
+
+			_this$child0.completed()
+
+			$this.completed()
+}
+
+
+//=====[component controls.input.TextAreaInput]=====================
+
+	var TextAreaInputBaseComponent = $controls$input.BaseInput
+	var TextAreaInputBasePrototype = TextAreaInputBaseComponent.prototype
+
+/**
+ * @constructor
+ * @extends {$controls$input.BaseInput}
+ */
+	var TextAreaInputComponent = $controls$input.TextAreaInput = function(parent, row) {
+		TextAreaInputBaseComponent.apply(this, arguments)
+	//custom constructor:
+	{
+		this.element.on("input", function() { this.text = this.element.dom.value }.bind(this))
+	}
+
+	}
+	var TextAreaInputPrototype = TextAreaInputComponent.prototype = Object.create(TextAreaInputBasePrototype)
+
+	TextAreaInputPrototype.constructor = TextAreaInputComponent
+
+	TextAreaInputPrototype.componentName = 'controls.input.TextAreaInput'
+	core.addProperty(TextAreaInputPrototype, 'string', 'text')
+	TextAreaInputPrototype.getTag = function() { return 'textarea' }
+	TextAreaInputPrototype.registerStyle = function(style,tag) {
+		style.addRule('textarea', "position: absolute; visibility: inherit; border-style: solid; border-width: 0px; box-sizing: border-box; resize: none;")
+		style.addRule('textarea:focus', "outline: none;")
+	}
+	$core._protoOnChanged(TextAreaInputPrototype, 'text', function(value) { if (value != this.element.dom.value) this.element.dom.value = value; })
+
+	TextAreaInputPrototype.$c = function($c) {
+		var $this = this;
+		TextAreaInputBasePrototype.$c.call(this, $c.$b = { })
+
+	}
+	TextAreaInputPrototype.$s = function($c) {
+		var $this = this;
+	TextAreaInputBasePrototype.$s.call(this, $c.$b); delete $c.$b
+//assigning width to (150)
+			$this._removeUpdater('width'); $this.width = (150);
+//assigning height to (100)
+			$this._removeUpdater('height'); $this.height = (100);
 
 			$this.completed()
 }
@@ -4162,59 +4134,240 @@ $this.completed()
 }
 
 
-//=====[component controls.core.Resource]=====================
+//=====[component core.Text]=====================
 
-	var ResourceBaseComponent = $controls$core.Request
-	var ResourceBasePrototype = ResourceBaseComponent.prototype
+	var TextBaseComponent = $core.Item
+	var TextBasePrototype = TextBaseComponent.prototype
 
 /**
  * @constructor
- * @extends {$controls$core.Request}
+ * @extends {$core.Item}
  */
-	var ResourceComponent = $controls$core.Resource = function(parent, row) {
-		ResourceBaseComponent.apply(this, arguments)
+	var TextComponent = $core.Text = function(parent, row) {
+		TextBaseComponent.apply(this, arguments)
+	//custom constructor:
+	{
+		this._context.backend.initText(this)
+		if (this.text.length > 0)
+			this._setText(this.text)
+	}
 
 	}
-	var ResourcePrototype = ResourceComponent.prototype = Object.create(ResourceBasePrototype)
+	var TextPrototype = TextComponent.prototype = Object.create(TextBasePrototype)
 
-	ResourcePrototype.constructor = ResourceComponent
+	TextPrototype.constructor = TextComponent
 
-	ResourcePrototype.componentName = 'controls.core.Resource'
-	ResourcePrototype.error = $core.createSignal('error')
-	core.addProperty(ResourcePrototype, 'string', 'url')
-	core.addProperty(ResourcePrototype, 'string', 'data')
-	ResourcePrototype.__complete = function() { ResourceBasePrototype.__complete.call(this)
-this.load(this.url)
-}
-	ResourcePrototype.load = function(url) {
-		if (url) {
-			var self = this
-			this.ajax({
-				url: url,
-				done: function(data) {
-					var target = data.target
-					if (target.status >= 400)
-						self.error(data)
-					else
-						self.data = target.responseText
-				},
-				error: function(err) { self.error(err) }
-			})
-		} else {
-			this.data = ''
+	TextPrototype.componentName = 'core.Text'
+	core.addProperty(TextPrototype, 'string', 'text')
+	core.addProperty(TextPrototype, 'color', 'color')
+	core.addLazyProperty(TextPrototype, 'shadow', (function(__parent, __row) {
+		var lazy$shadow = new $core.Shadow(__parent, __row)
+		var $c = { lazy$shadow : lazy$shadow }
+
+//creating component Shadow
+			lazy$shadow.$c($c.$c$lazy$shadow = { })
+
+
+//setting up component Shadow
+			var lazy$shadow = $c.lazy$shadow
+			lazy$shadow.$s($c.$c$lazy$shadow)
+			delete $c.$c$lazy$shadow
+
+
+			lazy$shadow.completed()
+
+		return lazy$shadow
+}))
+	core.addLazyProperty(TextPrototype, 'font', (function(__parent, __row) {
+		var lazy$font = new $core.Font(__parent, __row)
+		var $c = { lazy$font : lazy$font }
+
+//creating component Font
+			lazy$font.$c($c.$c$lazy$font = { })
+
+
+//setting up component Font
+			var lazy$font = $c.lazy$font
+			lazy$font.$s($c.$c$lazy$font)
+			delete $c.$c$lazy$font
+
+
+			lazy$font.completed()
+
+		return lazy$font
+}))
+	core.addProperty(TextPrototype, 'int', 'paintedWidth')
+	core.addProperty(TextPrototype, 'int', 'paintedHeight')
+/** @const @type {number} */
+	TextPrototype.AlignTop = 0
+/** @const @type {number} */
+	TextComponent.AlignTop = 0
+/** @const @type {number} */
+	TextPrototype.AlignBottom = 1
+/** @const @type {number} */
+	TextComponent.AlignBottom = 1
+/** @const @type {number} */
+	TextPrototype.AlignVCenter = 2
+/** @const @type {number} */
+	TextComponent.AlignVCenter = 2
+	core.addProperty(TextPrototype, 'enum', 'verticalAlignment')
+/** @const @type {number} */
+	TextPrototype.Html = 0
+/** @const @type {number} */
+	TextComponent.Html = 0
+/** @const @type {number} */
+	TextPrototype.Text = 1
+/** @const @type {number} */
+	TextComponent.Text = 1
+	core.addProperty(TextPrototype, 'enum', 'textFormat')
+/** @const @type {number} */
+	TextPrototype.AlignLeft = 0
+/** @const @type {number} */
+	TextComponent.AlignLeft = 0
+/** @const @type {number} */
+	TextPrototype.AlignRight = 1
+/** @const @type {number} */
+	TextComponent.AlignRight = 1
+/** @const @type {number} */
+	TextPrototype.AlignHCenter = 2
+/** @const @type {number} */
+	TextComponent.AlignHCenter = 2
+/** @const @type {number} */
+	TextPrototype.AlignJustify = 3
+/** @const @type {number} */
+	TextComponent.AlignJustify = 3
+	core.addProperty(TextPrototype, 'enum', 'horizontalAlignment')
+/** @const @type {number} */
+	TextPrototype.NoWrap = 0
+/** @const @type {number} */
+	TextComponent.NoWrap = 0
+/** @const @type {number} */
+	TextPrototype.WordWrap = 1
+/** @const @type {number} */
+	TextComponent.WordWrap = 1
+/** @const @type {number} */
+	TextPrototype.WrapAnywhere = 2
+/** @const @type {number} */
+	TextComponent.WrapAnywhere = 2
+/** @const @type {number} */
+	TextPrototype.Wrap = 3
+/** @const @type {number} */
+	TextComponent.Wrap = 3
+	core.addProperty(TextPrototype, 'enum', 'wrapMode')
+	TextPrototype._updateSize = function() {
+		if (this.recursiveVisible && (this._updateSizeNeeded || this.clip))
+			this._scheduleUpdateSize()
+	}
+	TextPrototype._updateStyle = function() {
+		if (this.shadow && !this.shadow._empty())
+			this.style('text-shadow', this.shadow._getFilterStyle())
+		else
+			this.style('text-shadow', '')
+		$core.Item.prototype._updateStyle.apply(this, arguments)
+	}
+	TextPrototype._updateSizeImpl = function() {
+		if (this.text.length === 0) {
+			this.paintedWidth = 0
+			this.paintedHeight = 0
+			return
 		}
-	}
-	$core._protoOnChanged(ResourcePrototype, 'url', function(value) { this.load(value) })
 
-	ResourcePrototype.$c = function($c) {
+		this._context.backend.layoutText(this)
+	}
+	TextPrototype._scheduleUpdateSize = function() {
+		this._context.delayedAction('text:update-size', this, this._updateSizeImpl)
+	}
+	TextPrototype._enableSizeUpdate = function() {
+		this._updateSizeNeeded = true
+		this._updateSize()
+	}
+	TextPrototype._updateWSHandling = function() {
+		var text = this.textFormat === this.Text
+		switch(this.wrapMode) {
+		case this.NoWrap:
+			this.style({'white-space': text? 'pre': 'nowrap', 'word-break': '' })
+			break
+		case this.Wrap:
+		case this.WordWrap:
+			this.style({'white-space': text? 'pre-wrap': 'normal', 'word-break': '' })
+			break
+		case this.WrapAnywhere:
+			this.style({ 'white-space': text? 'pre-wrap': 'normal', 'word-break': 'break-all' })
+			break
+		}
+		this._updateSize();
+	}
+	TextPrototype.getClass = function() { return 'core-text' }
+	TextPrototype._setText = function(html) {
+		this._context.backend.setText(this, html)
+	}
+	TextPrototype.on = function(name,callback) {
+		if (!this._updateSizeNeeded) {
+			if (name === 'newBoundingBox')
+				this._enableSizeUpdate()
+		}
+		$core.Item.prototype.on.apply(this, arguments)
+	}
+	TextPrototype.onChanged = function(name,callback) {
+		if (!this._updateSizeNeeded) {
+			switch(name) {
+				case "right":
+				case "width":
+				case "bottom":
+				case "height":
+				case "verticalCenter":
+				case "horizontalCenter":
+					this._enableSizeUpdate()
+			}
+		}
+		$core.Item.prototype.onChanged.apply(this, arguments);
+	}
+	TextPrototype.registerStyle = function(style,tag) {
+		style.addRule(tag, 'width: auto; height: auto;')
+	}
+	$core._protoOnChanged(TextPrototype, 'recursiveVisible', function(value) {
+		if (value)
+			this._updateSize()
+	})
+	$core._protoOnChanged(TextPrototype, 'horizontalAlignment', function(value) {
+		switch(value) {
+		case this.AlignLeft:	this.style('text-align', 'left'); break
+		case this.AlignRight:	this.style('text-align', 'right'); break
+		case this.AlignHCenter:	this.style('text-align', 'center'); break
+		case this.AlignJustify:	this.style('text-align', 'justify'); break
+		}
+	})
+	$core._protoOnChanged(TextPrototype, 'verticalAlignment', function(value) {
+		this._enableSizeUpdate()
+		switch(value) {
+		case this.AlignTop:		this.style('-pure-text-vertical-align', 'top'); break
+		case this.AlignVCenter:	this.style('-pure-text-vertical-align', 'middle'); break
+		case this.AlignBottom:	this.style('-pure-text-vertical-align', 'bottom'); break
+		}
+	})
+	var $code$0 = function(value) {
+		this._updateWSHandling()
+	}
+	$core._protoOnChanged(TextPrototype, 'wrapMode', $code$0)
+	$core._protoOnChanged(TextPrototype, 'textFormat', $code$0)
+	$core._protoOnChanged(TextPrototype, 'text', function(value) { this._setText(value); this._updateSize() })
+	$core._protoOnChanged(TextPrototype, 'width', function(value) { this._updateSize() })
+	$core._protoOnChanged(TextPrototype, 'color', function(value) { this.style('color', $core.Color.normalize(value)) })
+
+	TextPrototype.$c = function($c) {
 		var $this = this;
-		ResourceBasePrototype.$c.call(this, $c.$b = { })
+		TextBasePrototype.$c.call(this, $c.$b = { })
 
 	}
-	ResourcePrototype.$s = function($c) {
+	TextPrototype.$s = function($c) {
 		var $this = this;
-	ResourceBasePrototype.$s.call(this, $c.$b); delete $c.$b
-$this.completed()
+	TextBasePrototype.$s.call(this, $c.$b); delete $c.$b
+//assigning width to (${paintedWidth})
+			$this._replaceUpdater('width', function() { $this.width = ($this.paintedWidth) }, [$this,'paintedWidth'])
+//assigning height to (${paintedHeight})
+			$this._replaceUpdater('height', function() { $this.height = ($this.paintedHeight) }, [$this,'paintedHeight'])
+
+			$this.completed()
 }
 
 
