@@ -1,10 +1,13 @@
 Item {
+	id: main;
+	property int currentIndex;
+	property int count;
 	anchors.fill: context;
 
 	TextAreaInput {
 		id: playlistInput;
-		x: 30;
-		y: 30;
+		y: 10;
+		x: 230;
 		width: 200;
 		height: 200;
 		border.width: 1;
@@ -12,18 +15,17 @@ Item {
 	}
 
 	WebItem {
-		x: 240;
-		y: 30;
-		width: 100;
-		height: 30;
+		y: 160;
+		width: 200;
+		height: 50;
 		color: "#ccc";
 
 		Text {
 			y: 5;
 			width: 100%;
-			text: "Check";
+			text: main.count ? Math.round(main.currentIndex * 1.0 / main.count * 100) : "Check";
 			horizontalAlignment: Text.AlignHCenter;
-			font.pixelSize: 15;
+			font.pixelSize: 24;
 			color: "#000";
 		}
 
@@ -32,11 +34,62 @@ Item {
 		}
 	}
 
+	WebItem {
+		y: 220;
+		width: 200;
+		height: 50;
+		color: "#ccc";
+
+		Text {
+			y: 5;
+			width: 100%;
+			text: "Get";
+			horizontalAlignment: Text.AlignHCenter;
+			font.pixelSize: 24;
+			color: "#000";
+		}
+
+		onClicked: {
+			log("WORKS", this.parent._workingPlaylists)
+			checkTimer.stop()
+			var text = ""
+			var playlist = this.parent._workingPlaylists
+			for (var i = 0; i < playlist.length; ++i) {
+				text += "#EXTINF:-1," + playlist[i].title + "\n"
+				text += playlist[i].playlist + "\n"
+			}
+			playlistInput.text = text
+		}
+	}
+
 	VideoPlayer {
-		y: 80;
-		x: 240;
+		id: player;
 		width: 200;
 		height: 150;
+		autoPlay: true;
+
+		onReadyChanged: {
+			if (value) {
+				var parent = this.parent
+				parent._workingPlaylists.push(parent._data[parent.currentIndex - 1])
+			}
+		}
+	}
+
+	Timer {
+		id: checkTimer;
+		interval: 5000;
+
+		onTriggered: {
+			var parent = this.parent
+			if (parent._data && parent.currentIndex < parent._data.length) {
+				log("Check link", parent._data[parent.currentIndex])
+				player.ready = false
+				player.source = parent._data[parent.currentIndex].playlist
+				++parent.currentIndex
+			}
+			this.restart()
+		}
 	}
 
 	processData: {
@@ -61,5 +114,9 @@ Item {
 					this._data.push({'title': title, 'playlist': lines[i + 2]})
 			}
 		}
+		this._workingPlaylists = []
+		this.currentIndex = 0
+		this.count = this._data.length
+		checkTimer.restart()
 	}
 }
