@@ -6,10 +6,9 @@ Item {
 
 	TextAreaInput {
 		id: playlistInput;
-		y: 10;
 		x: 230;
-		width: 200;
-		height: 200;
+		width: 300;
+		height: 600;
 		border.width: 1;
 		border.color: "#000";
 	}
@@ -19,6 +18,12 @@ Item {
 		width: 200;
 		height: 50;
 		color: "#ccc";
+
+		Rectangle {
+			width: main.count ? Math.round(main.currentIndex * 1.0 / main.count * parent.width) : 0;
+			height: 100%;
+			color: "#999";
+		}
 
 		Text {
 			y: 5;
