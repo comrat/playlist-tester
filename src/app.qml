@@ -56,7 +56,6 @@ Item {
 
 		onClicked: {
 			log("WORKS", this.parent._workingPlaylists)
-			checkTimer.stop()
 			var text = ""
 			var playlist = this.parent._workingPlaylists
 			for (var i = 0; i < playlist.length; ++i) {
