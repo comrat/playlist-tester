@@ -55,7 +55,6 @@ Item {
 		}
 
 		onClicked: {
-			log("WORKS", this.parent._workingPlaylists)
 			var text = ""
 			var playlist = this.parent._workingPlaylists
 			for (var i = 0; i < playlist.length; ++i) {
@@ -72,6 +71,8 @@ Item {
 		height: 150;
 		autoPlay: true;
 
+		onError: { checkTimer.processNext() }
+
 		onReadyChanged: {
 			if (value) {
 				var parent = this.parent
@@ -84,7 +85,7 @@ Item {
 		id: checkTimer;
 		interval: 5000;
 
-		onTriggered: {
+		processNext: {
 			var parent = this.parent
 			if (parent._data && parent.currentIndex < parent._data.length) {
 				log("Check link", parent._data[parent.currentIndex])
@@ -94,6 +95,8 @@ Item {
 			}
 			this.restart()
 		}
+
+		onTriggered: { this.processNext() }
 	}
 
 	processData: {
