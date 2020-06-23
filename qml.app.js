@@ -7,15 +7,19 @@ var $manifest$disableAnimations = false
 var $manifest$expectRunContextEvent = false
 var $manifest$html5$prefix = ""
 var $manifest$log$disable = false
+var $manifest$requireExplicitRecursiveVisibilityStyle = false
+var $manifest$requireVerticalTextAlignmentStyle = false
 var $manifest$resolutionHeight = 0
 var $manifest$resolutionWidth = 0
 var $manifest$style$font$family = "Arial"
 var $manifest$style$font$lineHeight = 1.2
 var $manifest$style$font$pixelSize = 16
 var $manifest$style$font$pointSize = 0
+var $manifest$system$fingerprint = false
 var $manifest$trace$focus = false
 var $manifest$trace$keys = false
 var $manifest$trace$listeners = false
+var $manifest$useNativeFocusForInput = true
 var $manifest$virtual$height = 1080
 var $manifest$virtual$width = 1920
 var qml = (function() {/** @const */
@@ -40,6 +44,8 @@ if (!_globals.video) /** @const */ _globals.video = {}
 var $video = _globals.video
 if (!_globals.video.html5) /** @const */ _globals.video.html5 = {}
 var $video$html5 = _globals.video.html5
+if (!_globals.video.videojs) /** @const */ _globals.video.videojs = {}
+var $video$videojs = _globals.video.videojs
 if (!_globals.html5) /** @const */ _globals.html5 = {}
 var $html5 = _globals.html5
 if (!_globals.src) /** @const */ _globals.src = {}
@@ -102,6 +108,7 @@ _globals._backend = function() { return _globals.html5.html }
 _globals.core.__locationBackend = function() { return _globals.html5.location }
 _globals.core.__localStorageBackend = function() { return _globals.html5.localstorage }
 _globals.core.__videoBackends.html5 = function() { return _globals.video.html5.backend }
+_globals.core.__videoBackends.videojs = function() { return _globals.video.videojs.backend }
 _globals.core.__deviceBackend = function() { return _globals.web.device }
 
 exports.core.keyCodes = {
@@ -114,6 +121,7 @@ exports.core.keyCodes = {
 	32: 'Space',
 	33: 'PageUp',
 	34: 'PageDown',
+	36: 'Menu',
 	38: 'Up',
 	39: 'Right',
 	40: 'Down',
@@ -383,6 +391,14 @@ exports.core.safeCall = function(self, args, onError) {
 	return function(callback) { return safeCallImpl(callback, self, args, onError) }
 }
 
+exports.core.assign = function(target, path, value) {
+	var path = path.split('.')
+	var n = path.length - 1
+	for(var i = 0; i < n; ++i) {
+		target = target[path[i]]
+	}
+	target[path[n]] = value
+}
 
 $core.getKeyCodeByName = function(key) {
 	var codes = $core.keyCodes
@@ -512,17 +528,20 @@ Color.interpolate = function(dst, src, t) {
 
 Color.normalize = function(spec) {
 	if (spec instanceof Color)
-		return spec.rgba()
+		return spec
 	else
-		return (new Color(spec)).rgba()
+		return (new Color(spec))
 }
 
 var ColorPrototype = Color.prototype
 ColorPrototype.constructor = $core.Color
 /** @const */
 
-ColorPrototype.rgba = function() {
-	return "rgba(" + this.r + "," + this.g + "," + this.b + "," + (this.a / 255) + ")";
+ColorPrototype.rgba = ColorPrototype.toString = function() {
+	var a = this.a
+	return a == 255?
+		"rgb(" + this.r + "," + this.g + "," + this.b + ")":
+		"rgba(" + this.r + "," + this.g + "," + this.b + "," + (a / 255) + ")";
 }
 
 var hexByte = function(v) {
@@ -659,7 +678,10 @@ PropertyStoragePrototype.forwardSet = function(object, name, newValue, defaultVa
 }
 
 PropertyStoragePrototype.discard = function() {
-
+	var animation = this.getAnimation()
+	if (animation)
+		animation.complete()
+	this.onChanged = []
 }
 
 PropertyStoragePrototype.getSimpleValue = function(defaultValue) {
@@ -694,10 +716,8 @@ PropertyStoragePrototype.set = function(object, name, newValue, defaultValue, ca
 		this.callOnChanged(object, name, newValue, oldValue)
 }
 
-PropertyStoragePrototype.callOnChanged = function(object, name, value) {
+var _callOnChanged = function(object, name, value, handlers) {
 	var protoCallbacks = object['__changed__' + name]
-	var handlers = this.onChanged
-
 	var hasProtoCallbacks = protoCallbacks !== undefined
 	var hasHandlers = handlers !== undefined
 
@@ -713,6 +733,10 @@ PropertyStoragePrototype.callOnChanged = function(object, name, value) {
 		handlers.forEach(invoker)
 }
 
+PropertyStoragePrototype.callOnChanged = function(object, name, value) {
+	_callOnChanged(object, name, value, this.onChanged)
+}
+
 PropertyStoragePrototype.removeOnChanged = function(callback) {
 	var handlers = this.onChanged
 	var idx = handlers.indexOf(callback)
@@ -720,34 +744,62 @@ PropertyStoragePrototype.removeOnChanged = function(callback) {
 		return handlers.splice(idx, 1)
 }
 
-exports.addProperty = function(proto, type, name, defaultValue) {
-	var convert
-	var animable = false
+var getDefaultValueForType = exports.getDefaultValueForType = function(type) {
+	switch(type) {
+		case 'enum': //fixme: add default value here
+		case 'int':		return 0
+		case 'bool':	return false
+		case 'real':	return 0.0
+		case 'string':	return ""
+		case 'array':	return []
+		case 'color':
+		case 'Color':	return '#0000'
+		default:		return (type[0].toUpperCase() === type[0])? null: undefined
+	}
+}
+
+var convertTo = exports.convertTo = function(type, value) {
 	switch(type) {
 		case 'enum':
-		case 'int':		convert = function(value) { return ~~value }; animable = true; break
-		case 'bool':	convert = function(value) { return value? true: false }; break
-		case 'real':	convert = function(value) { return +value }; animable = true; break
-		case 'string':	convert = function(value) { return String(value) }; break
-
-		case 'Color':	animable = true; //fallthrough
-		default:		convert = function(value) { return value }; break
+		case 'int':		return ~~value
+		case 'bool':	return value? true: false
+		case 'real':	return +value
+		case 'string':	return String(value)
+		default:		return value
 	}
+}
+
+var getConvertFunction = exports.getConvertFunction = function(type) {
+	switch(type) {
+		case 'enum':
+		case 'int':		return function(value) { return ~~value }
+		case 'bool':	return function(value) { return value? true: false }
+		case 'real':	return function(value) { return +value }
+		case 'string':	return function(value) { return String(value) }
+		default:		return function(value) { return value }
+	}
+}
+
+var isTypeAnimable = function(type) {
+	switch(type) {
+		case 'int':
+		case 'real':
+		case 'color':
+		case 'Color':
+			return true;
+		default:
+			return false;
+	}
+}
+
+exports.addProperty = function(proto, type, name, defaultValue) {
+	var convert = getConvertFunction(type)
+	var animable = isTypeAnimable(type)
 
 	if (defaultValue !== undefined) {
 		defaultValue = convert(defaultValue)
 	} else {
-		switch(type) {
-			case 'enum': //fixme: add default value here
-			case 'int':		defaultValue = 0; break
-			case 'bool':	defaultValue = false; break
-			case 'real':	defaultValue = 0.0; break
-			case 'string':	defaultValue = ""; break
-			case 'array':	defaultValue = []; break
-			case 'Color':	defaultValue = '#0000'; break
-			default:
-				defaultValue = (type[0].toUpperCase() === type[0])? null: undefined
-		}
+		defaultValue = getDefaultValueForType(type)
 	}
 
 	var createStorage = function(newValue) {
@@ -804,8 +856,14 @@ exports.addProperty = function(proto, type, name, defaultValue) {
 			var self = this
 
 			var complete = function() {
-				backend.cancelAnimationFrame(storage.frameRequest)
-				storage.frameRequest = undefined
+				if (storage.frameRequest) {
+					backend.cancelAnimationFrame(storage.frameRequest)
+					storage.frameRequest = undefined
+				}
+				if (storage.frameRequestDelayed) {
+					clearTimeout(storage.frameRequestDelayed)
+					storage.frameRequestDelayed = undefined
+				}
 				animation.complete = function() { }
 				storage.interpolatedValue = undefined
 				storage.started = undefined
@@ -827,7 +885,11 @@ exports.addProperty = function(proto, type, name, defaultValue) {
 				}
 			})
 
-			storage.frameRequest = backend.requestAnimationFrame(nextFrame)
+			if (animation.delay <= 0)
+				storage.frameRequest = backend.requestAnimationFrame(nextFrame)
+			else {
+				storage.frameRequestDelayed = setTimeout(nextFrame, animation.delay)
+			}
 
 			animation.running = true
 			animation.complete = complete
@@ -850,6 +912,8 @@ exports.addAliasProperty = function(object, name, getObject, srcProperty) {
 		var storage = object.__properties[name]
 		if (storage !== undefined)
 			storage.callOnChanged(object, name, value)
+		else
+			_callOnChanged(object, name, value) //call prototype handlers
 	})
 
 	Object.defineProperty(object, name, {
@@ -902,7 +966,7 @@ $core.EventBinder.prototype.enable = function(value) {
 }
 
 var protoEvent = function(prefix, proto, name, callback) {
-	var sname = prefix + '__' + name
+	var sname = prefix + name
 	//if property was in base prototype, create shallow copy and put our handler there or we would add to base prototype's array
 	var storage = proto[sname]
 	if (storage !== undefined) {
@@ -919,13 +983,13 @@ var protoEvent = function(prefix, proto, name, callback) {
 }
 
 $core._protoOn = function(proto, name, callback)
-{ protoEvent('__on', proto, name, callback) }
+{ protoEvent('__on__', proto, name, callback) }
 
 $core._protoOnChanged = function(proto, name, callback)
-{ protoEvent('__changed', proto, name, callback) }
+{ protoEvent('__changed__', proto, name, callback) }
 
 $core._protoOnKey = function(proto, name, callback)
-{ protoEvent('__key', proto, name, callback) }
+{ protoEvent('__key__', proto, name, callback) }
 
 var ObjectEnumerator = function(callback) {
 	this._callback = callback
@@ -965,6 +1029,16 @@ exports.forEach = function(root, callback, arg) {
 	return arg
 }
 
+exports.createObject = function(item) {
+	item.__init()
+	var parent = item.parent
+	if ('_updateVisibilityForChild' in parent)
+		parent._updateVisibilityForChild(item, parent.recursiveVisible)
+	if ('_tryFocus' in parent)
+		parent._tryFocus()
+	item._context.scheduleComplete()
+}
+
 return exports;
 } )()
 //========================================
@@ -997,9 +1071,11 @@ var core = _globals.core.core
 
 	EventEmitterPrototype.componentName = 'core.EventEmitter'
 	EventEmitterPrototype.discard = function() {
+		this.removeAllOn()
 		for(var name in this._eventHandlers)
 			this.removeAllListeners(name)
-
+	}
+	EventEmitterPrototype.removeAllOn = function() {
 		var connections = this._onConnections
 		for(var i = 0, n = connections.length; i < n; i += 3)
 			connections[i].removeListener(connections[i + 1], connections[i + 2])
@@ -1165,10 +1241,7 @@ $this.completed()
 			this._context.__onCompleted(this)
 	}
 	ObjectPrototype.discard = function() {
-		var connections = this._changedConnections
-		for(var i = 0, n = connections.length; i < n; i += 3)
-			connections[i].removeOnChanged(connections[i + 1], connections[i + 2])
-		this._changedConnections = []
+		this.removeAllOnChanged()
 
 		var attached = this.__attachedObjects
 		this.__attachedObjects = []
@@ -1193,6 +1266,12 @@ $this.completed()
 
 		$core.EventEmitter.prototype.discard.apply(this)
 	}
+	ObjectPrototype.removeAllOnChanged = function() {
+		var connections = this._changedConnections
+		for(var i = 0, n = connections.length; i < n; i += 3)
+			connections[i].removeOnChanged(connections[i + 1], connections[i + 2])
+		this._changedConnections = []
+	}
 	ObjectPrototype.getComponentPath = function() {
 		var path = []
 		var self = this
@@ -1211,6 +1290,12 @@ $this.completed()
 	ObjectPrototype._tryFocus = function() { return false }
 	ObjectPrototype.addChild = function(child) {
 		this.children.push(child);
+	}
+	ObjectPrototype.removeChild = function(child) {
+		var children = this.children
+		var idx = children.indexOf(child)
+		if (idx >= 0)
+			children.splice(idx, 1)
 	}
 	ObjectPrototype._cancelDelayedAction = function(name) {
 		this._registeredDelayedActions[name] = false
@@ -1272,8 +1357,17 @@ $this.completed()
 		animation.property = name
 		var storage = this._createPropertyStorage(name)
 		storage.animation = animation
-		if (backend.setAnimation(this, name, animation))
+		if (backend.setAnimation(this, name, animation)) {
 			animation._native = true
+		} else {
+			var target = this[name]
+			//this is special fallback for combined css animation, e.g transform
+			//if native backend refuse to animate, we call _animateAll()
+			//see Transform._animateAll for details
+			if (target && (typeof target === 'object') && ('_animateAll' in target)) {
+				target._animateAll(animation)
+			}
+		}
 	}
 	ObjectPrototype.removeOnChanged = function(name,callback) {
 		var storage = this.__properties[name]
@@ -1382,6 +1476,7 @@ $this.completed()
 	core.addProperty(SystemPrototype, 'int', 'contextHeight')
 	core.addProperty(SystemPrototype, 'int', 'resolutionWidth')
 	core.addProperty(SystemPrototype, 'int', 'resolutionHeight')
+	core.addProperty(SystemPrototype, 'bool', 'virtualKeyboard')
 /** @const @type {number} */
 	SystemPrototype.Desktop = 0
 /** @const @type {number} */
@@ -1460,6 +1555,8 @@ $this.completed()
 			$this._replaceUpdater('portrait', function() { $this.portrait = ($this.parent.width < $this.parent.height) }, [$this.parent,'height',$this.parent,'width'])
 //assigning contextWidth to (${context.width})
 			$this._replaceUpdater('contextWidth', function() { $this.contextWidth = ($this._context.width) }, [$this._context,'width'])
+//assigning virtualKeyboard to (${device} === _globals.core.System.prototype.Tv || ${device} === _globals.core.System.prototype.Mobile)
+			$this._replaceUpdater('virtualKeyboard', function() { $this.virtualKeyboard = ($this.device === _globals.core.System.prototype.Tv || $this.device === _globals.core.System.prototype.Mobile) }, [$this,'device'])
 //assigning landscape to (! ${portrait})
 			$this._replaceUpdater('landscape', function() { $this.landscape = (! $this.portrait) }, [$this,'portrait'])
 //assigning contextHeight to (${context.height})
@@ -1489,7 +1586,7 @@ $this.completed()
 	ShadowPrototype.componentName = 'core.Shadow'
 	core.addProperty(ShadowPrototype, 'real', 'x')
 	core.addProperty(ShadowPrototype, 'real', 'y')
-	core.addProperty(ShadowPrototype, 'Color', 'color', ("black"))
+	core.addProperty(ShadowPrototype, 'color', 'color', ("black"))
 	core.addProperty(ShadowPrototype, 'real', 'blur')
 	core.addProperty(ShadowPrototype, 'real', 'spread')
 	ShadowPrototype._empty = function() {
@@ -1559,16 +1656,13 @@ $this.completed()
 	PlaceHolderPrototype.setPlaceholderColor = function(color) {
 		var cls = this.getClass()
 
-		var rgba = new _globals.core.Color(color).rgba()
+		var rgba = $core.Color.normalize(color)
+		this.parent.element.style('-pure-placeholder-color', rgba)
+
 		//fixme: port to modernizr
 		var selectors = ['::-webkit-input-placeholder', '::-moz-placeholder', ':-moz-placeholder', ':-ms-input-placeholder']
 		selectors.forEach(function(selector) {
-			try {
-				this._context.stylesheet._addRule('.' + cls + selector, 'color: ' + rgba)
-				log('added rule for .' + cls + selector)
-			} catch(ex) {
-				//log(ex)
-			}
+			this._context.stylesheet.addRule('.' + cls + selector, 'color: ' + rgba)
 		}.bind(this))
 	}
 	$core._protoOnChanged(PlaceHolderPrototype, 'text', function(value) { this.parent.element.setAttribute('placeholder', value) })
@@ -1616,10 +1710,6 @@ $this.completed()
 	{
 		this._pressedHandlers = {}
 		this._topPadding = 0
-		this._borderXAdjust = 0
-		this._borderYAdjust = 0
-		this._borderWidthAdjust = 0
-		this._borderHeightAdjust = 0
 		if (parent) {
 			if (this.element)
 				throw new Error('double ctor call')
@@ -1660,6 +1750,7 @@ $this.completed()
 
 		return lazy$radius
 }))
+	core.addProperty(ItemPrototype, 'bool', 'fullscreen')
 	core.addProperty(ItemPrototype, 'bool', 'focus')
 	core.addProperty(ItemPrototype, 'bool', 'focused')
 	core.addProperty(ItemPrototype, 'bool', 'activeFocus')
@@ -1725,6 +1816,7 @@ $this.completed()
 	core.addProperty(ItemPrototype, 'bool', 'cssTranslatePositioning')
 	core.addProperty(ItemPrototype, 'bool', 'cssNullTranslate3D')
 	core.addProperty(ItemPrototype, 'bool', 'cssDelegateAlwaysVisibleOnAcceleratedSurfaces', (true))
+	core.addProperty(ItemPrototype, 'bool', 'cssPointerTouchEvents', (false))
 	core.addConstProperty(ItemPrototype, 'left', function() { return [this, 0]; })
 	core.addConstProperty(ItemPrototype, 'top', function() { return [this, 1]; })
 	core.addConstProperty(ItemPrototype, 'right', function() { return [this, 2]; })
@@ -1769,10 +1861,12 @@ $this.completed()
 	ItemPrototype.toScreen = function() {
 		var item = this
 		var x = 0, y = 0
-		var w = this.width, h = this.height
+		var w = this.width + (this._borderWidthAdjust || 0) + (this._borderInnerWidthAdjust || 0)
+		var h = this.height + (this._borderHeightAdjust || 0) + (this._borderInnerHeightAdjust || 0)
+
 		while(item) {
-			x += item.x + item.viewX
-			y += item.y + item.viewY
+			x += item.x + item.viewX + (item._borderXAdjust || 0)
+			y += item.y + item.viewY + (item._borderYAdjust || 0)
 			if (item.hasOwnProperty('view')) {
 				var content = item.view.content
 				x += content.x
@@ -1828,8 +1922,8 @@ $this.completed()
 		this.recursiveVisible = visible && (this.parent !== null? this.parent.recursiveVisible: true)
 	}
 	ItemPrototype._setSizeAdjust = function() {
-		var x = this.x + this.viewX + this._borderXAdjust
-		var y = this.y + this.viewY + this._borderYAdjust
+		var x = this.x + this.viewX + (this._borderXAdjust || 0)
+		var y = this.y + this.viewY + (this._borderYAdjust || 0)
 
 		if (this.cssTranslatePositioning && !$manifest$cssDisableTransformations) {
 			this.transform.translateX = x
@@ -1838,6 +1932,7 @@ $this.completed()
 			this.style('left', x)
 			this.style('top', y)
 		}
+		this.newBoundingBox()
 	}
 	ItemPrototype.getClass = function() { return '' }
 	ItemPrototype.getTag = function() { return 'div' }
@@ -1877,13 +1972,14 @@ $this.completed()
 		if (this.element)
 			this.element.discard()
 
-		element._item = this
 		this.element = element
 		var parent = this.parent
 		if (parent)
 			parent.element.append(element)
 	}
 	ItemPrototype._processKey = function(key,event) {
+		if ($manifest$trace$keys)
+			log(this.getComponentPath(), '_processKey', key, event)
 		var eventTime = event.timeStamp
 
 		if (this.keyProcessDelay) {
@@ -1897,18 +1993,19 @@ $this.completed()
 		var invoker = $core.safeCall(this, [key, event], function (ex) { log("on " + key + " handler failed:", ex, ex.stack) })
 		var proto_callback = this['__key__' + key]
 
-		if (key in this._pressedHandlers)
-			return this.invokeKeyHandlers(key, event, this._pressedHandlers[key], invoker)
+		if (key in this._pressedHandlers && this.invokeKeyHandlers(key, event, this._pressedHandlers[key], invoker))
+			return true
 
-		if (proto_callback)
-			return this.invokeKeyHandlers(key, event, proto_callback, invoker)
+		if (proto_callback && this.invokeKeyHandlers(key, event, proto_callback, invoker))
+			return true
 
 		var proto_callback = this['__key__Key']
-		if ('Key' in this._pressedHandlers)
-			return this.invokeKeyHandlers(key, event, this._pressedHandlers['Key'], invoker)
+		if ('Key' in this._pressedHandlers  && this.invokeKeyHandlers(key, event, this._pressedHandlers['Key'], invoker))
+			return true
 
-		if (proto_callback)
-			return this.invokeKeyHandlers(key, event, proto_callback, invoker)
+		if (proto_callback && this.invokeKeyHandlers(key, event, proto_callback, invoker))
+			return true
+
 		return false
 	}
 	ItemPrototype.invokeKeyHandlers = function(key,event,handlers,invoker) {
@@ -1957,6 +2054,7 @@ $this.completed()
 		rules += 'white-space: nowrap; transform: none;'
 		rules += 'left: 0px; top: 0px; width: 0px; height: 0px;'
 		rules += 'font-family: ' + $manifest$style$font$family + '; line-height: ' + $manifest$style$font$lineHeight + '; '
+		rules += 'pointer-events: none; touch-action: none; '
 		if ($manifest$style$font$pixelSize)
 			rules += 'font-size: ' + $manifest$style$font$pixelSize + 'px; '
 		else if ($manifest$style$font$pointSize)
@@ -1981,6 +2079,25 @@ $this.completed()
 		if (this.parent)
 			this.parent._tryFocus()
 	})
+	$core._protoOnChanged(ItemPrototype, 'height', function(value) {
+		this.style('height', value - this._topPadding + (this._borderHeightAdjust || 0))
+		this.newBoundingBox()
+	})
+	$core._protoOnChanged(ItemPrototype, 'width', function(value) {
+		this.style('width', value + (this._borderWidthAdjust || 0))
+		this.newBoundingBox()
+	})
+	$core._protoOnChanged(ItemPrototype, 'fullscreen', function(value) {
+		var backend = this._context.backend
+		if (!('enterFullscreenMode' in backend)) {
+			log('enterFullscreenMode is not available in current backend, fullscreen: ' + value)
+			return
+		}
+		if (value)
+			backend.enterFullscreenMode(this.element);
+		else
+			backend.exitFullscreenMode();
+	})
 	$core._protoOnChanged(ItemPrototype, 'recursiveVisible', function(value) {
 		var children = this.children
 		for(var i = 0, n = children.length; i < n; ++i) {
@@ -1990,6 +2107,15 @@ $this.completed()
 
 		if (!value && this.parent)
 			this.parent._tryFocus()
+
+		if ($manifest$requireExplicitRecursiveVisibilityStyle) {
+			this.style("-pure-recursive-visibility", value)
+		}
+	})
+	$core._protoOnChanged(ItemPrototype, 'cssPointerTouchEvents', function(value) {
+		var style = value? 'auto': 'none'
+		this.style('pointer-events', style)
+		this.style('touch-action', style)
 	})
 	var $code$0 = function(value) {
 		var x = this.x + this.viewX
@@ -2015,9 +2141,7 @@ $this.completed()
 	var $code$2 = function(value) { this._updateVisibility() }
 	$core._protoOnChanged(ItemPrototype, 'visible', $code$2)
 	$core._protoOnChanged(ItemPrototype, 'visibleInView', $code$2)
-	$core._protoOnChanged(ItemPrototype, 'height', function(value) { this.style('height', value - this._topPadding + this._borderHeightAdjust); this.newBoundingBox() })
 	$core._protoOnChanged(ItemPrototype, 'clip', function(value) { this.style('overflow', value? 'hidden': 'visible') })
-	$core._protoOnChanged(ItemPrototype, 'width', function(value) { this.style('width', value + this._borderWidthAdjust); this.newBoundingBox() })
 	$core._protoOnChanged(ItemPrototype, 'z', function(value) { this.style('z-index', value) })
 
 	ItemPrototype.$c = function($c) {
@@ -2078,12 +2202,9 @@ $this.completed()
 			if (ctor === undefined)
 				throw new Error('unknown component used: ' + source)
 		}
-		var item = new ctor(this)
-		item.__init()
-		this.item = item
-		this._context.scheduleComplete()
-		this._updateVisibilityForChild(this.item, this.recursiveVisible)
-		this._tryFocus()
+
+		this.item = new ctor(this)
+		$core.core.createObject(this.item)
 		this.loaded()
 	}
 	LoaderPrototype.__complete = function() { LoaderBasePrototype.__complete.call(this)
@@ -2589,8 +2710,10 @@ $this.completed()
 	UiAppPrototype.constructor = UiAppComponent
 
 	UiAppPrototype.componentName = 'src.UiApp'
+	core.addProperty(UiAppPrototype, 'int', 'currentIndex')
+	core.addProperty(UiAppPrototype, 'int', 'count')
 	UiAppPrototype.processData = function() {
-	var playlistInput = this._get('playlistInput', true)
+	var checkTimer = this._get('checkTimer', true), playlistInput = this._get('playlistInput', true)
 
 		var lines = playlistInput.text.split('\n');
 		this._data = []
@@ -2613,6 +2736,10 @@ $this.completed()
 					this._data.push({'title': title, 'playlist': lines[i + 2]})
 			}
 		}
+		this._workingPlaylists = []
+		this.currentIndex = 0
+		this.count = this._data.length
+		checkTimer.restart()
 	}
 
 	UiAppPrototype.$c = function($c) {
@@ -2630,21 +2757,49 @@ var _this$child0 = new $controls$input.TextAreaInput($this)
 
 //creating component WebItem
 		_this$child1.$c($c.$c$_this$child1 = { })
-		var _this_child1$child0 = new $core.Text(_this$child1)
+		var _this_child1$child0 = new $core.Rectangle(_this$child1)
 		$c._this_child1$child0 = _this_child1$child0
 
-//creating component Text
+//creating component Rectangle
 		_this_child1$child0.$c($c.$c$_this_child1$child0 = { })
 
 		_this$child1.addChild(_this_child1$child0)
+		var _this_child1$child1 = new $core.Text(_this$child1)
+		$c._this_child1$child1 = _this_child1$child1
+
+//creating component Text
+		_this_child1$child1.$c($c.$c$_this_child1$child1 = { })
+
+		_this$child1.addChild(_this_child1$child1)
 		$this.addChild(_this$child1)
-		var _this$child2 = new $core.VideoPlayer($this)
+		var _this$child2 = new $controls$web.WebItem($this)
 		$c._this$child2 = _this$child2
 
-//creating component VideoPlayer
+//creating component WebItem
 		_this$child2.$c($c.$c$_this$child2 = { })
+		var _this_child2$child0 = new $core.Text(_this$child2)
+		$c._this_child2$child0 = _this_child2$child0
 
+//creating component Text
+		_this_child2$child0.$c($c.$c$_this_child2$child0 = { })
+
+		_this$child2.addChild(_this_child2$child0)
 		$this.addChild(_this$child2)
+		var _this$child3 = new $core.VideoPlayer($this)
+		$c._this$child3 = _this$child3
+
+//creating component VideoPlayer
+		_this$child3.$c($c.$c$_this$child3 = { })
+		_this$child3._setId('player')
+		$this.addChild(_this$child3)
+		var _this$child4 = new $core.Timer($this)
+		$c._this$child4 = _this$child4
+
+//creating component Timer
+		_this$child4.$c($c.$c$_this$child4 = { })
+		_this$child4._setId('checkTimer')
+		$this.addChild(_this$child4)
+		$this._setId('main')
 	}
 	UiAppPrototype.$s = function($c) {
 		var $this = this;
@@ -2659,16 +2814,14 @@ var _this$child0 = new $controls$input.TextAreaInput($this)
 
 //assigning border.color to ("#000")
 			_this$child0.border._removeUpdater('color'); _this$child0.border.color = ("#000");
-//assigning width to (200)
-			_this$child0._removeUpdater('width'); _this$child0.width = (200);
-//assigning height to (200)
-			_this$child0._removeUpdater('height'); _this$child0.height = (200);
+//assigning height to (600)
+			_this$child0._removeUpdater('height'); _this$child0.height = (600);
+//assigning width to (300)
+			_this$child0._removeUpdater('width'); _this$child0.width = (300);
 //assigning border.width to (1)
 			_this$child0.border._removeUpdater('width'); _this$child0.border.width = (1);
-//assigning y to (30)
-			_this$child0._removeUpdater('y'); _this$child0.y = (30);
-//assigning x to (30)
-			_this$child0._removeUpdater('x'); _this$child0.x = (30);
+//assigning x to (230)
+			_this$child0._removeUpdater('x'); _this$child0.x = (230);
 
 			_this$child0.completed()
 
@@ -2677,57 +2830,146 @@ var _this$child0 = new $controls$input.TextAreaInput($this)
 			_this$child1.$s($c.$c$_this$child1)
 			delete $c.$c$_this$child1
 
-//assigning y to (30)
-			_this$child1._removeUpdater('y'); _this$child1.y = (30);
-//assigning x to (240)
-			_this$child1._removeUpdater('x'); _this$child1.x = (240);
-//assigning height to (30)
-			_this$child1._removeUpdater('height'); _this$child1.height = (30);
+//assigning y to (160)
+			_this$child1._removeUpdater('y'); _this$child1.y = (160);
+//assigning width to (200)
+			_this$child1._removeUpdater('width'); _this$child1.width = (200);
 //assigning color to ("#ccc")
 			_this$child1._removeUpdater('color'); _this$child1.color = ("#ccc");
-//assigning width to (100)
-			_this$child1._removeUpdater('width'); _this$child1.width = (100);
+//assigning height to (50)
+			_this$child1._removeUpdater('height'); _this$child1.height = (50);
 			_this$child1.on('clicked', function() {
 			this.parent.processData()
 		}.bind(_this$child1))
 
-//setting up component Text
+//setting up component Rectangle
 			var _this_child1$child0 = $c._this_child1$child0
 			_this_child1$child0.$s($c.$c$_this_child1$child0)
 			delete $c.$c$_this_child1$child0
 
-//assigning color to ("#000")
-			_this_child1$child0._removeUpdater('color'); _this_child1$child0.color = ("#000");
-//assigning text to ("Check")
-			_this_child1$child0._removeUpdater('text'); _this_child1$child0.text = ("Check");
-//assigning width to ((${parent.width}))
-			_this_child1$child0._replaceUpdater('width', function() { _this_child1$child0.width = ((_this_child1$child0.parent.width)) }, [_this_child1$child0.parent,'width'])
-//assigning horizontalAlignment to (_globals.core.Text.prototype.AlignHCenter)
-			_this_child1$child0._removeUpdater('horizontalAlignment'); _this_child1$child0.horizontalAlignment = (_globals.core.Text.prototype.AlignHCenter);
-//assigning font.pixelSize to (15)
-			_this_child1$child0.font._removeUpdater('pixelSize'); _this_child1$child0.font.pixelSize = (15);
-//assigning y to (5)
-			_this_child1$child0._removeUpdater('y'); _this_child1$child0.y = (5);
+//assigning color to ("#999")
+			_this_child1$child0._removeUpdater('color'); _this_child1$child0.color = ("#999");
+//assigning width to (${main.count} ? Math.round((${main.currentIndex} * 1.0 / ${main.count} * ${parent.width})) : 0)
+			_this_child1$child0._replaceUpdater('width', function() { _this_child1$child0.width = (_this_child1$child0._get('main').count ? Math.round((_this_child1$child0._get('main').currentIndex * 1.0 / _this_child1$child0._get('main').count * _this_child1$child0.parent.width)) : 0) }, [_this_child1$child0._get('main'),'currentIndex',_this_child1$child0.parent,'width',_this_child1$child0._get('main'),'count'])
+//assigning height to ((${parent.height}))
+			_this_child1$child0._replaceUpdater('height', function() { _this_child1$child0.height = ((_this_child1$child0.parent.height)) }, [_this_child1$child0.parent,'height'])
 
 			_this_child1$child0.completed()
 
+//setting up component Text
+			var _this_child1$child1 = $c._this_child1$child1
+			_this_child1$child1.$s($c.$c$_this_child1$child1)
+			delete $c.$c$_this_child1$child1
+
+//assigning color to ("#000")
+			_this_child1$child1._removeUpdater('color'); _this_child1$child1.color = ("#000");
+//assigning text to (${main.count} ? Math.round((${main.currentIndex} * 1.0 / ${main.count} * 100)) : "Check")
+			_this_child1$child1._replaceUpdater('text', function() { _this_child1$child1.text = (_this_child1$child1._get('main').count ? Math.round((_this_child1$child1._get('main').currentIndex * 1.0 / _this_child1$child1._get('main').count * 100)) : "Check") }, [_this_child1$child1._get('main'),'currentIndex',_this_child1$child1._get('main'),'count'])
+//assigning width to ((${parent.width}))
+			_this_child1$child1._replaceUpdater('width', function() { _this_child1$child1.width = ((_this_child1$child1.parent.width)) }, [_this_child1$child1.parent,'width'])
+//assigning horizontalAlignment to (_globals.core.Text.prototype.AlignHCenter)
+			_this_child1$child1._removeUpdater('horizontalAlignment'); _this_child1$child1.horizontalAlignment = (_globals.core.Text.prototype.AlignHCenter);
+//assigning font.pixelSize to (24)
+			_this_child1$child1.font._removeUpdater('pixelSize'); _this_child1$child1.font.pixelSize = (24);
+//assigning y to (5)
+			_this_child1$child1._removeUpdater('y'); _this_child1$child1.y = (5);
+
+			_this_child1$child1.completed()
+
 			_this$child1.completed()
 
-//setting up component VideoPlayer
+//setting up component WebItem
 			var _this$child2 = $c._this$child2
 			_this$child2.$s($c.$c$_this$child2)
 			delete $c.$c$_this$child2
 
-//assigning y to (80)
-			_this$child2._removeUpdater('y'); _this$child2.y = (80);
-//assigning x to (240)
-			_this$child2._removeUpdater('x'); _this$child2.x = (240);
-//assigning height to (150)
-			_this$child2._removeUpdater('height'); _this$child2.height = (150);
+//assigning y to (220)
+			_this$child2._removeUpdater('y'); _this$child2.y = (220);
 //assigning width to (200)
 			_this$child2._removeUpdater('width'); _this$child2.width = (200);
+//assigning color to ("#ccc")
+			_this$child2._removeUpdater('color'); _this$child2.color = ("#ccc");
+//assigning height to (50)
+			_this$child2._removeUpdater('height'); _this$child2.height = (50);
+			_this$child2.on('clicked', function() {
+	var playlistInput = this._get('playlistInput', true)
+
+			var text = ""
+			var playlist = this.parent._workingPlaylists
+			for (var i = 0; i < playlist.length; ++i) {
+				text += "#EXTINF:-1," + playlist[i].title + "\n"
+				text += playlist[i].playlist + "\n"
+			}
+			playlistInput.text = text
+		}.bind(_this$child2))
+
+//setting up component Text
+			var _this_child2$child0 = $c._this_child2$child0
+			_this_child2$child0.$s($c.$c$_this_child2$child0)
+			delete $c.$c$_this_child2$child0
+
+//assigning color to ("#000")
+			_this_child2$child0._removeUpdater('color'); _this_child2$child0.color = ("#000");
+//assigning text to ("Get")
+			_this_child2$child0._removeUpdater('text'); _this_child2$child0.text = ("Get");
+//assigning width to ((${parent.width}))
+			_this_child2$child0._replaceUpdater('width', function() { _this_child2$child0.width = ((_this_child2$child0.parent.width)) }, [_this_child2$child0.parent,'width'])
+//assigning horizontalAlignment to (_globals.core.Text.prototype.AlignHCenter)
+			_this_child2$child0._removeUpdater('horizontalAlignment'); _this_child2$child0.horizontalAlignment = (_globals.core.Text.prototype.AlignHCenter);
+//assigning font.pixelSize to (24)
+			_this_child2$child0.font._removeUpdater('pixelSize'); _this_child2$child0.font.pixelSize = (24);
+//assigning y to (5)
+			_this_child2$child0._removeUpdater('y'); _this_child2$child0.y = (5);
+
+			_this_child2$child0.completed()
 
 			_this$child2.completed()
+
+//setting up component VideoPlayer
+			var _this$child3 = $c._this$child3
+			_this$child3.$s($c.$c$_this$child3)
+			delete $c.$c$_this$child3
+
+//assigning width to (200)
+			_this$child3._removeUpdater('width'); _this$child3.width = (200);
+//assigning autoPlay to (true)
+			_this$child3._removeUpdater('autoPlay'); _this$child3.autoPlay = (true);
+//assigning height to (150)
+			_this$child3._removeUpdater('height'); _this$child3.height = (150);
+			_this$child3.on('error', function() {
+	var checkTimer = this._get('checkTimer', true)
+ checkTimer.processNext() }.bind(_this$child3))
+			_this$child3.onChanged('ready', function(value) {
+			if (value) {
+				var parent = this.parent
+				parent._workingPlaylists.push(parent._data[parent.currentIndex - 1])
+			}
+		}.bind(_this$child3))
+
+			_this$child3.completed()
+
+//setting up component Timer
+			var _this$child4 = $c._this$child4
+			_this$child4.$s($c.$c$_this$child4)
+			delete $c.$c$_this$child4
+
+//assigning interval to (5000)
+			_this$child4._removeUpdater('interval'); _this$child4.interval = (5000);
+			_this$child4.processNext = function() {
+	var player = this._get('player', true)
+
+			var parent = this.parent
+			if (parent._data && parent.currentIndex < parent._data.length) {
+				log("Check link", parent._data[parent.currentIndex])
+				player.ready = false
+				player.source = parent._data[parent.currentIndex].playlist
+				++parent.currentIndex
+			}
+			this.restart()
+		}.bind(_this$child4)
+			_this$child4.on('triggered', function() { this.processNext() }.bind(_this$child4))
+
+			_this$child4.completed()
 
 			$this.completed()
 }
@@ -2748,6 +2990,14 @@ var _this$child0 = new $controls$input.TextAreaInput($this)
 	{
 		this.impl = null
 		this._createPlayer()
+
+		//see explanations in BaseView.onHighlightChanged:
+		var p = parent
+		var handler = this._scheduleLayout.bind(this)
+		while(p) {
+			this.connectOn(p, 'scrollEvent', handler)
+			p = p.parent
+		}
 	}
 
 	}
@@ -2762,7 +3012,7 @@ var _this$child0 = new $controls$input.TextAreaInput($this)
 	core.addProperty(VideoPlayerPrototype, 'string', 'backend')
 	core.addProperty(VideoPlayerPrototype, 'string', 'source')
 	core.addProperty(VideoPlayerPrototype, 'string', 'backgroundImage')
-	core.addProperty(VideoPlayerPrototype, 'Color', 'backgroundColor', ("#000"))
+	core.addProperty(VideoPlayerPrototype, 'color', 'backgroundColor', ("#000"))
 	core.addProperty(VideoPlayerPrototype, 'float', 'volume', (1.0))
 	core.addProperty(VideoPlayerPrototype, 'bool', 'loop')
 	core.addProperty(VideoPlayerPrototype, 'bool', 'ready')
@@ -2776,18 +3026,6 @@ var _this$child0 = new $controls$input.TextAreaInput($this)
 	core.addProperty(VideoPlayerPrototype, 'real', 'progress')
 	core.addProperty(VideoPlayerPrototype, 'real', 'buffered')
 	core.addProperty(VideoPlayerPrototype, 'real', 'startPosition')
-	VideoPlayerPrototype.play = function() {
-		if (!this.source)
-			return
-
-		log("play", this.source)
-		var player = this._getPlayer()
-		if (player) {
-			this._scheduleLayout()
-			player.play()
-		}
-		this.applyVolume();
-	}
 	VideoPlayerPrototype._getPlayer = function() {
 		if (this.impl === null)
 			this._createPlayer()
@@ -2821,22 +3059,56 @@ var _this$child0 = new $controls$input.TextAreaInput($this)
 	VideoPlayerPrototype._scheduleLayout = function() {
 		this._context.delayedAction('layout', this, this._doLayout)
 	}
+	VideoPlayerPrototype.play = function() {
+	var player = this._get('player', true)
+
+		if (!this.source)
+			return
+
+		log("play", this.source)
+		var player = this._getPlayer()
+		if (player) {
+			this._scheduleLayout()
+			player.play()
+		}
+		this.applyVolume();
+	}
+	VideoPlayerPrototype.applyVolume = function() {
+	var player = this._get('player', true)
+
+		if (this.volume > 1.0)
+			this.volume = 1.0;
+		else if (this.volume < 0.0)
+			this.volume = 0.0;
+
+		var player = this._getPlayer()
+		if (player)
+			player.setVolume(this.volume)
+	}
 	VideoPlayerPrototype.pause = function() {
+	var player = this._get('player', true)
+
 		var player = this._getPlayer()
 		if (player)
 			player.pause()
 	}
 	VideoPlayerPrototype._doLayout = function() {
+	var player = this._get('player', true)
+
 		var player = this._getPlayer()
 		if (player)
-			player.setRect.apply(player, this.toScreen())
+			player.setRect.apply(player, this.toScreen().slice(0, 4))
 	}
 	VideoPlayerPrototype.stop = function() {
+	var player = this._get('player', true)
+
 		var player = this._getPlayer()
 		if (player)
 			player.stop()
 	}
 	VideoPlayerPrototype.getAudioTracks = function() {
+	var player = this._get('player', true)
+
 		var player = this._getPlayer()
 		if (player)
 			return player.getAudioTracks()
@@ -2844,6 +3116,8 @@ var _this$child0 = new $controls$input.TextAreaInput($this)
 			return []
 	}
 	VideoPlayerPrototype.getSubtitles = function() {
+	var player = this._get('player', true)
+
 		var player = this._getPlayer()
 		if (player)
 			return player.getSubtitles()
@@ -2851,30 +3125,18 @@ var _this$child0 = new $controls$input.TextAreaInput($this)
 			return []
 	}
 	VideoPlayerPrototype.getVideoTracks = function() {
+	var player = this._get('player', true)
+
 		var player = this._getPlayer()
 		if (player)
 			return player.getVideoTracks()
 		else
 			return []
 	}
-	VideoPlayerPrototype.applyVolume = function() {
-	var volumeStorage = this._get('volumeStorage', true)
-
-		if (this.volume > 1.0)
-			this.volume = 1.0;
-		else if (this.volume < 0.0)
-			this.volume = 0.0;
-
-		volumeStorage.value = this.volume
-		var player = this._getPlayer()
-		if (player)
-			player.setVolume(this.volume)
-	}
 	VideoPlayerPrototype.__complete = function() {
-	var volumeStorage = this._get('volumeStorage', true)
+	var player = this._get('player', true)
  VideoPlayerBasePrototype.__complete.call(this)
-this.volume = +(volumeStorage.value)
-
+this._scheduleLayout()
 		var player = this._getPlayer()
 		if (player)
 			player.setBackgroundColor(this.backgroundColor)
@@ -2882,40 +3144,56 @@ this.volume = +(volumeStorage.value)
 		if (this.autoPlay && this.source)
 			this.play()
 }
+	VideoPlayerPrototype.toggleMute = function() {
+	var player = this._get('player', true)
+ var player = this._getPlayer(); if (player) player.setMute(!this.muted) }
 	VideoPlayerPrototype.volumeUp = function() { this.volume += 0.1 }
 	VideoPlayerPrototype.volumeDown = function() { this.volume -= 0.1 }
-	VideoPlayerPrototype.toggleMute = function() { var player = this._getPlayer(); if (player) player.setMute(!this.muted) }
 	VideoPlayerPrototype.setOption = function(name,value) {
+	var player = this._get('player', true)
+
 		var player = this._getPlayer()
 		if (player)
 			player.setOption(name, value)
 	}
 	VideoPlayerPrototype.setAudioTrack = function(trackId) {
+	var player = this._get('player', true)
+
 		var player = this._getPlayer()
 		if (player)
 			player.setAudioTrack(trackId)
 	}
 	VideoPlayerPrototype.setSubtitles = function(trackId) {
+	var player = this._get('player', true)
+
 		var player = this._getPlayer()
 		if (player)
 			player.setSubtitles(trackId)
 	}
 	VideoPlayerPrototype.setVideoTrack = function(trackId) {
+	var player = this._get('player', true)
+
 		var player = this._getPlayer()
 		if (player)
 			player.setVideoTrack(trackId)
 	}
 	VideoPlayerPrototype.setupDrm = function(type,options,callback,error) {
+	var player = this._get('player', true)
+
 		var player = this._getPlayer()
 		if (player)
 			player.setupDrm(type, options, callback, error)
 	}
 	VideoPlayerPrototype.seek = function(value) {
+	var player = this._get('player', true)
+
 		var player = this._getPlayer()
 		if (player)
 			player.seek(value)
 	}
 	VideoPlayerPrototype.seekTo = function(value) {
+	var player = this._get('player', true)
+
 		var player = this._getPlayer()
 		if (player)
 			player.seekTo(value)
@@ -2925,22 +3203,35 @@ this.volume = +(volumeStorage.value)
 		this._createPlayer()
 	})
 	$core._protoOnChanged(VideoPlayerPrototype, 'backgroundColor', function(value) {
+	var player = this._get('player', true)
+
 		var player = this._getPlayer()
 		if (player)
 			player.setBackgroundColor(value)
 	})
 	$core._protoOnChanged(VideoPlayerPrototype, 'loop', function(value) {
+	var player = this._get('player', true)
+
 		var player = this._getPlayer()
 		if (player)
 			player.setLoop(value)
 	})
 	$core._protoOnChanged(VideoPlayerPrototype, 'source', function(value) {
+	var player = this._get('player', true)
+
 		var player = this._getPlayer()
-		if (player)
+		if (player) {
+			log('setting source to', value)
 			player.setSource(value)
+		} else
+			log('WARNING: skipping VideoPlayer.setSource')
 	})
 	$core._protoOnChanged(VideoPlayerPrototype, 'recursiveVisible', function(value) {
+	var player = this._get('player', true)
+
 		var player = this._getPlayer()
+		if (value)
+			this._scheduleLayout()
 		if (player)
 			player.setVisibility(value)
 	})
@@ -2959,30 +3250,12 @@ this.volume = +(volumeStorage.value)
 	VideoPlayerPrototype.$c = function($c) {
 		var $this = this;
 		VideoPlayerBasePrototype.$c.call(this, $c.$b = { })
-var _this$child0 = new $core.PropertyStorage($this)
-		$c._this$child0 = _this$child0
 
-//creating component PropertyStorage
-		_this$child0.$c($c.$c$_this$child0 = { })
-		_this$child0._setId('volumeStorage')
-		$this.addChild(_this$child0)
 	}
 	VideoPlayerPrototype.$s = function($c) {
 		var $this = this;
 	VideoPlayerBasePrototype.$s.call(this, $c.$b); delete $c.$b
-//setting up component PropertyStorage
-			var _this$child0 = $c._this$child0
-			_this$child0.$s($c.$c$_this$child0)
-			delete $c.$c$_this$child0
-
-//assigning defaultValue to (1.0)
-			_this$child0._removeUpdater('defaultValue'); _this$child0.defaultValue = (1.0);
-//assigning name to ("volume")
-			_this$child0._removeUpdater('name'); _this$child0.name = ("volume");
-
-			_this$child0.completed()
-
-			$this.completed()
+$this.completed()
 }
 
 
@@ -3001,7 +3274,8 @@ var _this$child0 = new $core.PropertyStorage($this)
 	{
 		this._placeholderClass = ''
 		this.element.on("focus", function() { this.forceActiveFocus(); }.bind(this))
-		this.element.on("blur", function() { this.forceActiveFocus(); }.bind(this))
+		this.element.on("blur", function() { /* fixme: remove focus from current input */ }.bind(this))
+		this.element.on("change", function() { this.change() }.bind(this))
 	}
 
 	}
@@ -3010,6 +3284,7 @@ var _this$child0 = new $core.PropertyStorage($this)
 	BaseInputPrototype.constructor = BaseInputComponent
 
 	BaseInputPrototype.componentName = 'controls.input.BaseInput'
+	BaseInputPrototype.change = $core.createSignal('change')
 	core.addLazyProperty(BaseInputPrototype, 'paddings', (function(__parent, __row) {
 		var lazy$paddings = new $controls$core.Paddings(__parent, __row)
 		var $c = { lazy$paddings : lazy$paddings }
@@ -3035,6 +3310,9 @@ var _this$child0 = new $core.PropertyStorage($this)
 	core.addProperty(BaseInputPrototype, 'string', 'type', ("text"))
 	core.addProperty(BaseInputPrototype, 'PlaceHolder', 'placeholder')
 	core.addProperty(BaseInputPrototype, 'bool', 'enabled', (true))
+	core.addProperty(BaseInputPrototype, 'bool', 'nativeFocus', ($manifest$useNativeFocusForInput))
+	core.addProperty(BaseInputPrototype, 'string', 'inputMode')
+	core.addProperty(BaseInputPrototype, 'string', 'autocomplete')
 /** @const @type {number} */
 	BaseInputPrototype.AlignLeft = 0
 /** @const @type {number} */
@@ -3052,6 +3330,9 @@ var _this$child0 = new $core.PropertyStorage($this)
 /** @const @type {number} */
 	BaseInputComponent.Justify = 3
 	core.addProperty(BaseInputPrototype, 'enum', 'horizontalAlignment')
+	BaseInputPrototype._getValue = function() {
+		return this.element.getProperty('value')
+	}
 	BaseInputPrototype._updateSize = function() {
 		var style = { width: this.width, height: this.height }
 		this.style(style)
@@ -3059,18 +3340,31 @@ var _this$child0 = new $core.PropertyStorage($this)
 	BaseInputPrototype.focusBrowser = function() {
 	var focusTimer = this._get('focusTimer', true)
 
+		if (!this.nativeFocus)
+			return
+
 		focusTimer.restart()
 	}
 	BaseInputPrototype.blurBrowser = function() {
 	var focusTimer = this._get('focusTimer', true)
 
+		if (!this.nativeFocus)
+			return
+
 		focusTimer.stop()
-		this.element.dom.blur()
+		this.element.blur()
 	}
 	BaseInputPrototype.getTag = function() { return 'input' }
 	BaseInputPrototype.registerStyle = function(style) {
 		style.addRule('input', "position: absolute; visibility: inherit; border-style: solid; border-width: 0px; box-sizing: border-box;")
 		style.addRule('input:focus', "outline: none;")
+	}
+	BaseInputPrototype._updateValue = function(value) {
+		if (value !== this._getValue())
+			this._setValue(value)
+	}
+	BaseInputPrototype._setValue = function(value) {
+		this.element.setProperty('value', value)
 	}
 	$core._protoOnChanged(BaseInputPrototype, 'recursiveVisible', function(value) {
 		if (!value)
@@ -3090,13 +3384,19 @@ var _this$child0 = new $core.PropertyStorage($this)
 		case this.AlignJustify:	this.style('text-align', 'justify'); break
 		}
 	})
+	$core._protoOnChanged(BaseInputPrototype, 'autocomplete', function(value) {
+		this.element.setAttribute('autocomplete', value)
+	})
 	$core._protoOnChanged(BaseInputPrototype, 'enabled', function(value) {
-		this.element.dom.disabled = !value
+		this.element.setAttribute('disabled', !value)
+	})
+	$core._protoOnChanged(BaseInputPrototype, 'inputMode', function(value) {
+		this.element.setAttribute('inputmode', value)
 	})
 	var $code$0 = function(value) { this._updateSize() }
 	$core._protoOnChanged(BaseInputPrototype, 'height', $code$0)
 	$core._protoOnChanged(BaseInputPrototype, 'width', $code$0)
-	$core._protoOnChanged(BaseInputPrototype, 'type', function(value) { this.element.dom.type = value })
+	$core._protoOnChanged(BaseInputPrototype, 'type', function(value) { this.element.setAttribute('type', value) })
 	$core._protoOnChanged(BaseInputPrototype, 'backgroundColor', function(value) { this.style('background', value) })
 	$core._protoOnChanged(BaseInputPrototype, 'color', function(value) { this.style('color', value) })
 
@@ -3161,6 +3461,8 @@ var _this$child0 = new $core.Timer($this)
 
 
 			_this$border.completed()
+//assigning cssPointerTouchEvents to (true)
+			$this._removeUpdater('cssPointerTouchEvents'); $this.cssPointerTouchEvents = (true);
 
 //setting up component Timer
 			var _this$child0 = $c._this$child0
@@ -3170,8 +3472,7 @@ var _this$child0 = new $core.Timer($this)
 //assigning interval to (100)
 			_this$child0._removeUpdater('interval'); _this$child0.interval = (100);
 			_this$child0.on('triggered', function() {
-			this.parent.element.dom.focus()
-			this.parent.element.dom.select()
+			this.parent.element.focus()
 		}.bind(_this$child0))
 
 			_this$child0.completed()
@@ -3193,7 +3494,9 @@ var _this$child0 = new $core.Timer($this)
 		TextAreaInputBaseComponent.apply(this, arguments)
 	//custom constructor:
 	{
-		this.element.on("input", function() { this.text = this.element.dom.value }.bind(this))
+		this.element.on("input", function() {
+			this.text = this._getValue()
+		}.bind(this))
 	}
 
 	}
@@ -3208,7 +3511,9 @@ var _this$child0 = new $core.Timer($this)
 		style.addRule('textarea', "position: absolute; visibility: inherit; border-style: solid; border-width: 0px; box-sizing: border-box; resize: none;")
 		style.addRule('textarea:focus', "outline: none;")
 	}
-	$core._protoOnChanged(TextAreaInputPrototype, 'text', function(value) { if (value != this.element.dom.value) this.element.dom.value = value; })
+	$core._protoOnChanged(TextAreaInputPrototype, 'text', function(value) {
+		this._updateValue(value)
+	})
 
 	TextAreaInputPrototype.$c = function($c) {
 		var $this = this;
@@ -3484,16 +3789,28 @@ $this.completed()
 	$core._protoOnChanged(BorderPrototype, 'width', function(value) {
 		var parent = this.parent
 		parent.style('border-width', value)
-		if (this.type === this.Outer) {
+		switch(this.type) {
+		case this.Inner:
+			parent._borderXAdjust = 0
+			parent._borderYAdjust = 0
+			parent._borderInnerWidthAdjust = -2 * value
+			parent._borderInnerHeightAdjust = -2 * value
+			parent._setSizeAdjust()
+			break
+		case this.Outer:
 			parent._borderXAdjust = -value
 			parent._borderYAdjust = -value
+			parent._borderWidthAdjust = 0
+			parent._borderHeightAdjust = 0
 			parent._setSizeAdjust()
-		} else if (this.type === this.Center) {
+			break
+		case this.Center:
 			parent._borderXAdjust = -value / 2
 			parent._borderYAdjust = -value / 2
 			parent._borderWidthAdjust = -value
 			parent._borderHeightAdjust = -value
 			parent._setSizeAdjust()
+			break
 		}
 	})
 	$core._protoOnChanged(BorderPrototype, 'type', function(value) {
@@ -3662,132 +3979,6 @@ $this.completed()
 }
 
 
-//=====[component core.LocalStorage]=====================
-
-	var LocalStorageBaseComponent = $core.Object
-	var LocalStorageBasePrototype = LocalStorageBaseComponent.prototype
-
-/**
- * @constructor
- * @extends {$core.Object}
- */
-	var LocalStorageComponent = $core.LocalStorage = function(parent, row) {
-		LocalStorageBaseComponent.apply(this, arguments)
-	//custom constructor:
-	{
-		var backend = $core.__localStorageBackend
-		this.impl = backend().createLocalStorage(this)
-	}
-
-	}
-	var LocalStoragePrototype = LocalStorageComponent.prototype = Object.create(LocalStorageBasePrototype)
-
-	LocalStoragePrototype.constructor = LocalStorageComponent
-
-	LocalStoragePrototype.componentName = 'core.LocalStorage'
-	LocalStoragePrototype._ensureErrCallback = function(cb) {
-		return cb || function(err) { log(err.message) }
-	}
-	LocalStoragePrototype._ensureCallback = function(cb,name) {
-		return cb || function(val) { log("ignore value of", name, "gotten from storage:", val) }
-	}
-	LocalStoragePrototype._checkNameValid = function(name) {
-		if (!name) throw new Error("empty name")
-	}
-	LocalStoragePrototype.getOrDefault = function(name,callback,defaultValue) {
-		this._checkNameValid(name)
-		callback = this._ensureCallback(callback, name)
-		this.impl.get(name, callback, function() { callback(defaultValue) }, this)
-	}
-	LocalStoragePrototype.get = function(name,callback,error) {
-		this._checkNameValid(name)
-		this.impl.get(name, this._ensureCallback(callback, name), this._ensureErrCallback(error), this)
-	}
-	LocalStoragePrototype.erase = function(name,error) {
-		this._checkNameValid(name)
-		this.impl.erase(name, this._ensureErrCallback(error), this)
-	}
-	LocalStoragePrototype.set = function(name,value,error) {
-		this._checkNameValid(name)
-		this.impl.set(name, value, this._ensureErrCallback(error), this)
-	}
-
-	LocalStoragePrototype.$c = function($c) {
-		var $this = this;
-		LocalStorageBasePrototype.$c.call(this, $c.$b = { })
-
-	}
-	LocalStoragePrototype.$s = function($c) {
-		var $this = this;
-	LocalStorageBasePrototype.$s.call(this, $c.$b); delete $c.$b
-$this.completed()
-}
-
-
-//=====[component core.PropertyStorage]=====================
-
-	var PropertyStorageBaseComponent = $core.LocalStorage
-	var PropertyStorageBasePrototype = PropertyStorageBaseComponent.prototype
-
-/**
- * @constructor
- * @extends {$core.LocalStorage}
- */
-	var PropertyStorageComponent = $core.PropertyStorage = function(parent, row) {
-		PropertyStorageBaseComponent.apply(this, arguments)
-
-	}
-	var PropertyStoragePrototype = PropertyStorageComponent.prototype = Object.create(PropertyStorageBasePrototype)
-
-	PropertyStoragePrototype.constructor = PropertyStorageComponent
-
-	PropertyStoragePrototype.componentName = 'core.PropertyStorage'
-	PropertyStoragePrototype.ready = $core.createSignal('ready')
-	core.addProperty(PropertyStoragePrototype, 'string', 'name')
-	core.addProperty(PropertyStoragePrototype, 'string', 'value')
-	core.addProperty(PropertyStoragePrototype, 'string', 'defaultValue')
-	PropertyStoragePrototype._checkNameValid = function() {
-		if (!this.name)
-			throw new Error('empty property name')
-	}
-	PropertyStoragePrototype._write = function() {
-		this._checkNameValid()
-		if (this.value)
-			this.set(this.name, this.value)
-		else
-			this.erase(this.name)
-	}
-	PropertyStoragePrototype._read = function() {
-		this._checkNameValid()
-		this.getOrDefault(this.name, function(value) {
-			this._setProperty('value', value)
-			this.ready()
-		}.bind(this), this.defaultValue)
-	}
-	PropertyStoragePrototype.__complete = function() { PropertyStorageBasePrototype.__complete.call(this)
-if (this.value) {
-			this._setProperty('value', this.value)
-			this.ready()
-		}
-}
-	$core._protoOnChanged(PropertyStoragePrototype, 'name', function(value) {
-		this._setProperty('value', '')
-		this._read()
-	})
-	$core._protoOnChanged(PropertyStoragePrototype, 'value', function(value) { this._write() })
-
-	PropertyStoragePrototype.$c = function($c) {
-		var $this = this;
-		PropertyStorageBasePrototype.$c.call(this, $c.$b = { })
-
-	}
-	PropertyStoragePrototype.$s = function($c) {
-		var $this = this;
-	PropertyStorageBasePrototype.$s.call(this, $c.$b); delete $c.$b
-$this.completed()
-}
-
-
 //=====[component core.Effects]=====================
 
 	var EffectsBaseComponent = $core.Object
@@ -3923,14 +4114,14 @@ $this.completed()
 	ContextPrototype.constructor = ContextComponent
 
 	ContextPrototype.componentName = 'core.Context'
+	ContextPrototype.message = $core.createSignal('message')
 	core.addProperty(ContextPrototype, 'int', 'scrollY')
 	core.addProperty(ContextPrototype, 'int', 'keyProcessDelay')
-	core.addProperty(ContextPrototype, 'bool', 'fullscreen')
 	core.addProperty(ContextPrototype, 'string', 'language')
 	core.addProperty(ContextPrototype, 'System', 'system')
 	core.addProperty(ContextPrototype, 'Location', 'location')
 	core.addProperty(ContextPrototype, 'Stylesheet', 'stylesheet')
-	core.addProperty(ContextPrototype, 'string', 'buildIdentifier', "Powered by PureQML No-Partnership Edition Engine")
+	core.addProperty(ContextPrototype, 'string', 'buildIdentifier')
 	core.addProperty(ContextPrototype, 'int', 'virtualWidth', ($manifest$virtual$width))
 	core.addProperty(ContextPrototype, 'int', 'virtualHeight', ($manifest$virtual$height))
 	core.addProperty(ContextPrototype, 'real', 'virtualScale')
@@ -4045,9 +4236,9 @@ $this.completed()
 		}
 
 		if (delay > 0) {
-			setTimeout(callback, delay)
+			setTimeout(this.wrapNativeCallback(callback), delay)
 		} else if (delay === 0) {
-			this.backend.requestAnimationFrame(callback)
+			this.backend.requestAnimationFrame(this.wrapNativeCallback(callback))
 		} else {
 			this.scheduleAction(callback)
 		}
@@ -4069,7 +4260,6 @@ $this.completed()
 		}
 		return text.replace(/%(\d+)/, function(text, index) { return args[index] })
 	}
-	$core._protoOnChanged(ContextPrototype, 'fullscreen', function(value) { if (value) this.backend.enterFullscreenMode(this.element); else this.backend.exitFullscreenMode(); })
 
 	ContextPrototype.$c = function($c) {
 		var $this = this;
@@ -4339,10 +4529,12 @@ $this.completed()
 	})
 	$core._protoOnChanged(TextPrototype, 'verticalAlignment', function(value) {
 		this._enableSizeUpdate()
-		switch(value) {
-		case this.AlignTop:		this.style('-pure-text-vertical-align', 'top'); break
-		case this.AlignVCenter:	this.style('-pure-text-vertical-align', 'middle'); break
-		case this.AlignBottom:	this.style('-pure-text-vertical-align', 'bottom'); break
+		if ($manifest$requireVerticalTextAlignmentStyle) {
+			switch(value) {
+				case this.AlignTop:		this.style('-pure-text-vertical-align', 'top'); break
+				case this.AlignVCenter:	this.style('-pure-text-vertical-align', 'middle'); break
+				case this.AlignBottom:	this.style('-pure-text-vertical-align', 'bottom'); break
+			}
 		}
 	})
 	var $code$0 = function(value) {
@@ -4351,7 +4543,9 @@ $this.completed()
 	$core._protoOnChanged(TextPrototype, 'wrapMode', $code$0)
 	$core._protoOnChanged(TextPrototype, 'textFormat', $code$0)
 	$core._protoOnChanged(TextPrototype, 'text', function(value) { this._setText(value); this._updateSize() })
-	$core._protoOnChanged(TextPrototype, 'width', function(value) { this._updateSize() })
+	var $code$1 = function(value) { this._updateSize() }
+	$core._protoOnChanged(TextPrototype, 'height', $code$1)
+	$core._protoOnChanged(TextPrototype, 'width', $code$1)
 	$core._protoOnChanged(TextPrototype, 'color', function(value) { this.style('color', $core.Color.normalize(value)) })
 
 	TextPrototype.$c = function($c) {
@@ -4383,7 +4577,7 @@ $this.completed()
 	var TransformComponent = $core.Transform = function(parent, row) {
 		TransformBaseComponent.apply(this, arguments)
 	//custom constructor:
-	{ this._transforms = {} }
+	{ this._transforms = new $core.transform.Transform() }
 
 	}
 	var TransformPrototype = TransformComponent.prototype = Object.create(TransformBasePrototype)
@@ -4404,25 +4598,41 @@ $this.completed()
 	core.addProperty(TransformPrototype, 'real', 'skewX')
 	core.addProperty(TransformPrototype, 'real', 'skewY')
 	TransformPrototype._updateTransform = function() {
-		var str = ""
-		for (var i in this._transforms) {
-			str += i
-			str += "(" + this._transforms[i] + ") "
-		}
-		this.parent.style('transform', str)
+		this.parent.style('transform', this._transforms)
 	}
-	$core._protoOnChanged(TransformPrototype, 'perspective', function(value) { this._transforms['perspective'] = value + 'px'; this._updateTransform() })
-	$core._protoOnChanged(TransformPrototype, 'rotate', function(value) { this._transforms['rotate'] = value + 'deg'; this._updateTransform() })
-	$core._protoOnChanged(TransformPrototype, 'rotateX', function(value) { this._transforms['rotateX'] = value + 'deg'; this._updateTransform() })
-	$core._protoOnChanged(TransformPrototype, 'rotateY', function(value) { this._transforms['rotateY'] = value + 'deg'; this._updateTransform() })
-	$core._protoOnChanged(TransformPrototype, 'rotateZ', function(value) { this._transforms['rotateZ'] = value + 'deg'; this._updateTransform() })
-	$core._protoOnChanged(TransformPrototype, 'scaleX', function(value) { this._transforms['scaleX'] = value; this._updateTransform() })
-	$core._protoOnChanged(TransformPrototype, 'scaleY', function(value) { this._transforms['scaleY'] = value; this._updateTransform() })
-	$core._protoOnChanged(TransformPrototype, 'skewX', function(value) { this._transforms['skewX'] = value + 'deg'; this._updateTransform() })
-	$core._protoOnChanged(TransformPrototype, 'skewY', function(value) { this._transforms['skewY'] = value + 'deg'; this._updateTransform() })
-	$core._protoOnChanged(TransformPrototype, 'translateX', function(value) { this._transforms['translateX'] = value + 'px'; this._updateTransform() })
-	$core._protoOnChanged(TransformPrototype, 'translateY', function(value) { this._transforms['translateY'] = value + 'px'; this._updateTransform() })
-	$core._protoOnChanged(TransformPrototype, 'translateZ', function(value) { this._transforms['translateZ'] = value + 'px'; this._updateTransform() })
+	TransformPrototype._animateAll = function(animation) {
+		var transform = this
+		var transform_properties = [
+			'perspective',
+			'translateX', 'translateY', 'translateZ',
+			'rotateX', 'rotateY', 'rotateZ', 'rotate',
+			'scaleX', 'scaleY',
+			'skewX', 'skewY'
+		]
+		transform_properties.forEach(function(transform_property) {
+			var property_animation = new $core.Animation(transform)
+			$core.core.createObject(property_animation)
+			property_animation.delay = animation.delay
+			property_animation.duration = animation.duration
+			property_animation.cssTransition = false
+			property_animation.easing = animation.easing
+
+			transform.setAnimation(transform_property, property_animation)
+		})
+		this._context._processActions()
+	}
+	$core._protoOnChanged(TransformPrototype, 'perspective', function(value) { this._transforms.add('perspective', value, 'px'); this._updateTransform() })
+	$core._protoOnChanged(TransformPrototype, 'rotate', function(value) { this._transforms.add('rotate', value, 'deg'); this._updateTransform() })
+	$core._protoOnChanged(TransformPrototype, 'rotateX', function(value) { this._transforms.add('rotateX', value, 'deg'); this._updateTransform() })
+	$core._protoOnChanged(TransformPrototype, 'rotateY', function(value) { this._transforms.add('rotateY', value, 'deg'); this._updateTransform() })
+	$core._protoOnChanged(TransformPrototype, 'rotateZ', function(value) { this._transforms.add('rotateZ', value, 'deg'); this._updateTransform() })
+	$core._protoOnChanged(TransformPrototype, 'scaleX', function(value) { this._transforms.add('scaleX', value); this._updateTransform() })
+	$core._protoOnChanged(TransformPrototype, 'scaleY', function(value) { this._transforms.add('scaleY', value); this._updateTransform() })
+	$core._protoOnChanged(TransformPrototype, 'skewX', function(value) { this._transforms.add('skewX', value, 'deg'); this._updateTransform() })
+	$core._protoOnChanged(TransformPrototype, 'skewY', function(value) { this._transforms.add('skewY', value, 'deg'); this._updateTransform() })
+	$core._protoOnChanged(TransformPrototype, 'translateX', function(value) { this._transforms.add('translateX', value, 'px'); this._updateTransform() })
+	$core._protoOnChanged(TransformPrototype, 'translateY', function(value) { this._transforms.add('translateY', value, 'px'); this._updateTransform() })
+	$core._protoOnChanged(TransformPrototype, 'translateZ', function(value) { this._transforms.add('translateZ', value, 'px'); this._updateTransform() })
 
 	TransformPrototype.$c = function($c) {
 		var $this = this;
@@ -4601,6 +4811,8 @@ $this.completed()
 	AnchorsPrototype._updateAll = function() {
 		var anchors = this
 		var item = anchors.parent
+		if (item === null) //disposed
+			return
 		var parent = item.parent
 
 		var parent_box = parent.toScreen()
@@ -4890,7 +5102,7 @@ $this.completed()
 		var selectors = ['::-webkit-input-placeholder', '::-moz-placeholder', ':-moz-placeholder', ':-ms-input-placeholder']
 		selectors.forEach(function(selector) {
 			try {
-				this._context.stylesheet._addRule('.' + cls + selector, name + ':' + value)
+				this._context.stylesheet.addRule('.' + cls + selector, name + ':' + value)
 				log('added rule for .' + cls + selector)
 			} catch(ex) {
 				//log(ex)
@@ -5123,7 +5335,7 @@ exports.ModelUpdate.prototype._merge = function() {
 		var nextRange = ranges[index]
 		if (range.type === nextRange.type) {
 			if (range.type === ModelUpdateInsert && range.length < 0 && nextRange.length > 0) {
-				//removed + inserted rows reappers as updated
+				//removed + inserted rows reappears as updated
 				var updated = Math.min(-range.length, nextRange.length)
 				range.type = ModelUpdateUpdate
 				nextRange.length += range.length
@@ -5310,6 +5522,86 @@ ArrayModelWrapper.prototype.removeListener = function() { }
 
 return exports;
 } )()
+_globals.core.gradient = (function() {/** @const */
+var exports = {};
+//=====[import core.gradient]=====================
+
+var GradientStop = function(color, position) {
+	this.color = $core.Color.normalize(color)
+	this.position = position
+}
+
+var GradientStopPrototype = GradientStop.prototype
+GradientStopPrototype.constructor = GradientStop
+
+GradientStopPrototype.toString = function() {
+	return this.color + " " + Math.floor(100 * this.position) + "%"
+}
+
+var Gradient = function(orientation) {
+	this.orientation = orientation
+	this.stops = []
+}
+
+var GradientPrototype = Gradient.prototype
+GradientPrototype.constructor = Gradient
+
+GradientPrototype.add = function(stop) {
+	this.stops.push(stop)
+}
+
+GradientPrototype.toString = function() {
+	return 'linear-gradient(' + this.orientation + ',' + this.stops.join() + ')'
+}
+
+exports.GradientStop = GradientStop
+exports.Gradient = Gradient
+
+return exports;
+} )()
+_globals.core.transform = (function() {/** @const */
+var exports = {};
+//=====[import core.transform]=====================
+
+var Value = function(value, unit) {
+	this.value = value
+	this.unit = unit
+}
+
+var ValuePrototype = Value.prototype
+ValuePrototype.constructor = Value
+
+ValuePrototype.toString = function() {
+	var unit = this.unit
+	return unit != undefined? this.value + unit: this.value
+}
+
+var Transform = function() {
+	this.transforms = {}
+}
+
+var TransformPrototype = Transform.prototype
+TransformPrototype.constructor = Transform
+
+TransformPrototype.add = function(name, value, unit) {
+	this.transforms[name] = new Value(value, unit)
+}
+
+TransformPrototype.toString = function() {
+	var transforms = this.transforms
+	var str = ''
+	for(var name in transforms) {
+		var value = transforms[name]
+		str += name + '(' + value + ') '
+	}
+	return str
+}
+
+exports.Transform = Transform
+
+
+return exports;
+} )()
 _globals.html5.localstorage = (function() {/** @const */
 var exports = {};
 //=====[import html5.localstorage]=====================
@@ -5371,7 +5663,8 @@ exports.createAddRule = function(style) {
 			try {
 				sheet.addRule(name, rules)
 			} catch(e) {
-				log("AddRule failed:", e, ", sheet:", sheet, ", name:", name, ", rules:", rules)
+				//log("AddRule failed:", e, ", sheet:", sheet, ", name:", name, ", rules:", rules) //trace?
+				log("addRule failed on rule " + name)
 			}
 		}
 	}
@@ -5381,7 +5674,8 @@ exports.createAddRule = function(style) {
 			try {
 				sheet.insertRule(name + '{' + rules + '}', sheet.cssRules.length)
 			} catch(e) {
-				log("InsertRule failed:", e, ", sheet:", sheet, ", name:", name, ", rules:", rules)
+				//log("InsertRule failed:", e, ", sheet:", sheet, ", name:", name, ", rules:", rules) //trace?
+				log("insertRule failed on rule " + name)
 			}
 		}
 	}
@@ -5501,8 +5795,11 @@ var getPrefixedName = function(name) {
 
 exports.getPrefixedName = getPrefixedName
 
-var passiveListeners = ['touchstart', 'touchend', 'wheel', 'scroll']
+var passiveListeners = ['touchstart', 'touchmove', 'touchend', 'wheel', 'mousewheel', 'scroll']
 var passiveArg = Modernizr.passiveeventlisteners ? {passive: true} : false
+var mouseEvents = ['mousedown', 'mouseup', 'click', 'dblclick', 'mousemove',
+	'mouseover', 'mousewheel', 'mouseout', 'contextmenu', 'mouseenter', 'mouseleave']
+var touchEvents = ['touchstart', 'touchmove', 'touchend', 'touchcancel']
 
 var registerGenericListener = function(target) {
 	var storage = target.__domEventListeners
@@ -5520,10 +5817,31 @@ var registerGenericListener = function(target) {
 			if (passiveListeners.indexOf(name) >= 0)
 				args.push(passiveArg)
 
+			if (mouseEvents.indexOf(name) >= 0) {
+				var n = target.__mouseHandlerCount = ~~target.__mouseHandlerCount + 1
+				if (n === 1)
+					target.style('pointer-events', 'auto')
+			}
+			if (touchEvents.indexOf(name) >= 0) {
+				var n = target.__touchHandlerCount = ~~target.__touchHandlerCount + 1
+				if (n === 1)
+					target.style('touch-action', 'auto')
+			}
+
 			target.dom.addEventListener.apply(target.dom, args)
 		},
 		function(name) {
 			//log('removing generic event', name)
+			if (mouseEvents.indexOf(name) >= 0) {
+				var n = target.__mouseHandlerCount = ~~target.__mouseHandlerCount - 1
+				if (n <= 0)
+					target.style('pointer-events', 'none')
+			}
+			if (touchEvents.indexOf(name) >= 0) {
+				var n = target.__touchHandlerCount = ~~target.__touchHandlerCount - 1
+				if (n <= 0)
+					target.style('touch-action', 'none')
+			}
 			target.dom.removeEventListener(name, storage[name])
 		}
 	)
@@ -5576,7 +5894,6 @@ exports.Element = function(context, tag, cls) {
 	this._context = context
 	this._transitions = {}
 	this._class = ''
-	this._widthAdjust = 0
 	this._uniqueId = (++lastId).toString(36)
 	this._firstChildIndex = 0
 
@@ -5619,7 +5936,6 @@ ElementPrototype.removeChildren = function(ui) {
 
 
 ElementPrototype.setHtml = function(html, component) {
-	this._widthAdjust = 0 //reset any text related rounding corrections
 	var dom = this.dom
 	var children
 	if (component !== undefined)
@@ -5632,7 +5948,7 @@ ElementPrototype.setHtml = function(html, component) {
 
 ElementPrototype.width = function() {
 	this.updateStyle()
-	return this.dom.clientWidth - this._widthAdjust
+	return this.dom.clientWidth
 }
 
 ElementPrototype.height = function() {
@@ -5642,7 +5958,7 @@ ElementPrototype.height = function() {
 
 ElementPrototype.fullWidth = function() {
 	this.updateStyle()
-	return this.dom.scrollWidth - this._widthAdjust
+	return this.dom.scrollWidth
 }
 
 ElementPrototype.fullHeight = function() {
@@ -5650,20 +5966,43 @@ ElementPrototype.fullHeight = function() {
 	return this.dom.scrollHeight
 }
 
+var overflowStyles = ['overflow', 'overflow-x', 'overflow-y']
+
 ElementPrototype.style = function(name, style) {
 	var cache = this._context._styleCache
 	if (style !== undefined) {
 		cache.update(this, name, style)
+		if (overflowStyles.indexOf(name) >= 0) {
+			cache.update(this, 'pointer-events', 'auto')
+			cache.update(this, 'touch-action', 'auto')
+		}
 	} else if (typeof name === 'object') { //style({ }) assignment
-		for(var k in name)
+		for(var k in name) {
+			if (overflowStyles.indexOf(name) >= 0) {
+				cache.update(this, 'pointer-events', 'auto')
+				cache.update(this, 'touch-action', 'auto')
+			}
 			cache.update(this, k, name[k])
+		}
 	}
 	else
 		throw new Error('cache is write-only')
 }
 
 ElementPrototype.setAttribute = function(name, value) {
-	this.dom.setAttribute(name, value)
+	return this.dom.setAttribute(name, value)
+}
+
+ElementPrototype.getAttribute = function(name) {
+	return this.dom.getAttribute(name)
+}
+
+ElementPrototype.setProperty = function(name, value) {
+	return this.dom[name] = value
+}
+
+ElementPrototype.getProperty = function(name) {
+	return this.dom[name]
 }
 
 /** @const */
@@ -5715,12 +6054,12 @@ ElementPrototype.updateStyle = function(updated) {
 
 		var prefixedName = getPrefixedName(name)
 		var ruleName = prefixedName !== false? prefixedName: name
-		if (Array.isArray(value))
+		if (value instanceof _globals.core.Color)
+			value = value.rgba()
+		else if (Array.isArray(value))
 			value = value.join(',')
 
 		if (typeof value === 'number') {
-			if (name === 'width')
-				value += this._widthAdjust
 			var unit = cssUnits[name]
 			if (unit !== undefined) {
 				value += unit
@@ -5747,6 +6086,10 @@ ElementPrototype.append = function(el) {
 	this.dom.appendChild((el instanceof exports.Element)? el.dom: el)
 }
 
+ElementPrototype.prepend = function(el) {
+	this.dom.insertBefore((el instanceof exports.Element)? el.dom: el, this.dom.childNodes[0])
+}
+
 ElementPrototype.discard = function() {
 	_globals.core.RAIIEventEmitter.prototype.discard.apply(this)
 	this.remove()
@@ -5756,6 +6099,24 @@ ElementPrototype.remove = function() {
 	var dom = this.dom
 	if (dom.parentNode)
 		dom.parentNode.removeChild(dom)
+}
+
+ElementPrototype.focus = function() {
+	var dom = this.dom
+	dom.focus()
+	dom.select()
+}
+
+ElementPrototype.blur = function() {
+	this.dom.blur()
+}
+
+ElementPrototype.getScrollX = function() {
+	return this.dom.scrollLeft
+}
+
+ElementPrototype.getScrollY = function() {
+	return this.dom.scrollTop
 }
 
 exports.Document = function(context, dom) {
@@ -5791,6 +6152,8 @@ WindowPrototype.height = function() {
 WindowPrototype.scrollY = function() {
 	return this.dom.scrollY
 }
+
+WindowPrototype.style = function() { /* ignoring style on window */ }
 
 exports.getElement = function(ctx, tag) {
 	var tags = document.getElementsByTagName(tag)
@@ -5906,100 +6269,6 @@ exports.createElement = function(ctx, tag, cls) {
 exports.initRectangle = function(rect) {
 }
 
-var ImageComponent = _globals.core.Image
-
-var updateImage = function(image, metrics) {
-	if (!metrics) {
-		image.status = ImageComponent.Error
-		return
-	}
-
-	var style = {'background-image': 'url("' + image.source + '")'}
-
-	var natW = metrics.width, natH = metrics.height
-	image.sourceWidth = natW
-	image.sourceHeight = natH
-
-	if (image.fillMode !== ImageComponent.PreserveAspectFit) {
-		image.paintedWidth = image.width
-		image.paintedHeight = image.height
-	}
-
-	switch(image.horizontalAlignment) {
-		case ImageComponent.AlignHCenter:
-			style['background-position-x'] = 'center'
-			break;
-		case ImageComponent.AlignLeft:
-			style['background-position-x'] = 'left'
-			break;
-		case ImageComponent.AlignRight:
-			style['background-position-x'] = 'right'
-			break;
-	}
-
-	switch(image.verticalAlignment) {
-		case ImageComponent.AlignVCenter:
-			style['background-position-y'] = 'center'
-			break;
-		case ImageComponent.AlignTop:
-			style['background-position-y'] = 'top'
-			break;
-		case ImageComponent.AlignBottom:
-			style['background-position-y'] = 'bottom'
-			break;
-	}
-
-	switch(image.fillMode) {
-		case ImageComponent.Stretch:
-			style['background-repeat'] = 'no-repeat'
-			style['background-size'] = '100% 100%'
-			break;
-		case ImageComponent.TileVertically:
-			style['background-repeat'] = 'repeat-y'
-			style['background-size'] = '100% ' + natH + 'px'
-			break;
-		case ImageComponent.TileHorizontally:
-			style['background-repeat'] = 'repeat-x'
-			style['background-size'] = natW + 'px 100%'
-			break;
-		case ImageComponent.Tile:
-			style['background-repeat'] = 'repeat-y repeat-x'
-			style['background-size'] = 'auto'
-			break;
-		case ImageComponent.PreserveAspectCrop:
-			style['background-repeat'] = 'no-repeat'
-			style['background-size'] = 'cover'
-			break;
-		case ImageComponent.Pad:
-			style['background-repeat'] = 'no-repeat'
-			style['background-position'] = '0% 0%'
-			style['background-size'] = 'auto'
-			break;
-		case ImageComponent.PreserveAspectFit:
-			style['background-repeat'] = 'no-repeat'
-			style['background-size'] = 'contain'
-			var w = image.width, h = image.height
-			var targetRatio = 0, srcRatio = natW / natH
-
-			if (w && h)
-				targetRatio = w / h
-
-			if (srcRatio > targetRatio && w) { // img width aligned with target width
-				image.paintedWidth = w;
-				image.paintedHeight = w / srcRatio;
-			} else {
-				image.paintedHeight = h;
-				image.paintedWidth = h * srcRatio;
-			}
-			break;
-	}
-	style['image-rendering'] = image.smooth? 'auto': 'pixelated'
-	image.style(style)
-
-	image.status = ImageComponent.Ready
-	image._context._processActions()
-}
-
 var failImage = function(image) {
 	image._onError()
 	image._context._processActions()
@@ -6025,11 +6294,7 @@ var loadImage = function(url, callback) {
 exports.initImage = function(image) {
 }
 
-exports.loadImage = function(image) {
-	var callback = function(metrics) {
-		updateImage(image, metrics)
-	}
-
+exports.loadImage = function(image, callback) {
 	if (image.source.indexOf('?') < 0) {
 		imageCache.get(image.source, callback)
 	} else {
@@ -6092,23 +6357,37 @@ exports.layoutText = function(text) {
 		text.style({ 'height': 'auto', 'padding-top': 0})
 
 	//this is the source of rounding error. For instance you have 186.3px wide text, this sets width to 186px and causes wrapping
-	text.paintedWidth = element.fullWidth()
-	text.paintedHeight = element.fullHeight()
+	/*
+		https://github.com/pureqml/qmlcore/issues/176
 
-	//this makes style to adjust width (by adding this value), and return back _widthAdjust less
-	element._widthAdjust = 1
+		A few consequent text layouts may result in different results,
+		probably as a result of some randomisation and/or rounding errors.
+		This ends with +1 -1 +1 -1 infinite loop of updates.
+
+		Ignore all updates which subtract 1 from paintedWidth/Height
+	*/
+	var w = element.fullWidth() + 1, h = element.fullHeight() + 1
+	if (w + 1 !== text.paintedWidth)
+		text.paintedWidth = w
+	if (h + 1 !== text.paintedHeight)
+		text.paintedHeight = h
 
 	var style
 	if (!wrap)
-		style = { width: text.width, height: text.height } //restore original width value (see 'if' above)
+		//restore original width value (see 'if' above), we're not passing 'height' as it's explicitly set by layoutTextSetStyles
+		style = { 'width': text.width }
 	else
-		style = {'height': text.height }
+		style = { }
 
 	layoutTextSetStyle(text, style)
 	element.appendChildren(removedChildren)
 }
 
 exports.run = function(ctx, onloadCallback) {
+	ctx.window.on('message', function(event) {
+		log('Context: received message from ' + event.origin, event)
+		ctx.message(event)
+	})
 	ctx.window.on($manifest$expectRunContextEvent ? 'runContext' : 'load', function() {
 		onloadCallback()
 	})
@@ -6204,9 +6483,88 @@ exports.setAnimation = function (component, name, animation) {
 exports.requestAnimationFrame = Modernizr.prefixed('requestAnimationFrame', window)	|| function(callback) { return setTimeout(callback, 0) }
 exports.cancelAnimationFrame = Modernizr.prefixed('cancelAnimationFrame', window)	|| function(id) { return clearTimeout(id) }
 
-exports.enterFullscreenMode = function(el) { return Modernizr.prefixed('requestFullscreen', el.dom)() }
-exports.exitFullscreenMode = function() { return window.Modernizr.prefixed('exitFullscreen', document)() }
+exports.enterFullscreenMode = function(el) {
+	try {
+		return Modernizr.prefixed('requestFullscreen', el.dom)()
+	} catch(ex) {
+		log('enterFullscreenMode failed', ex)
+	}
+}
+exports.exitFullscreenMode = function() {
+	try {
+		return window.Modernizr.prefixed('exitFullscreen', document)()
+	} catch(ex) {
+		log('exitFullscreenMode failed', ex)
+	}
+}
 exports.inFullscreenMode = function () { return !!window.Modernizr.prefixed('fullscreenElement', document) }
+
+exports.ajax = function(ui, request) {
+	var url = request.url
+	var error = request.error,
+		headers = request.headers,
+		done = request.done,
+		settings = request.settings
+
+	var xhr = new XMLHttpRequest()
+
+	if (error)
+		xhr.addEventListener('error', error)
+
+	if (done)
+		xhr.addEventListener('load', done)
+
+	xhr.open(request.method || 'GET', url);
+
+	for (var i in settings)
+		xhr[i] = settings[i]
+
+	for (var i in headers)
+		xhr.setRequestHeader(i, headers[i])
+
+	if (request.data)
+		xhr.send(request.data)
+	else
+		xhr.send()
+}
+
+exports.fingerprint = function(ctx, fingerprint) {
+	var html = exports
+	try {
+		var fcanvas = html.createElement(ctx, 'canvas')
+		var w = 2000, h = 32
+		fcanvas.dom.width = w
+		fcanvas.dom.height = h
+		var txt = "ABCDEFGHIJKLMNOPQRSTUVWXYZ /0123456789 abcdefghijklmnopqrstuvwxyz £©µÀÆÖÞßéöÿ –—‘“”„†•…‰™œŠŸž€ ΑΒΓΔΩαβγδω АБВГДабвгд ∀∂∈ℝ∧∪≡∞ ↑↗↨↻⇣ ┐┼╔╘░►☺♀ ﬁ�⑀₂ἠḂӥẄɐː⍎אԱა"
+		var fctx = fcanvas.dom.getContext('2d')
+		fctx.textBaseline = "top";
+		fctx.font = "20px 'Arial'";
+		fctx.textBaseline = "alphabetic";
+		fctx.fillStyle = "#fedcba";
+		fctx.fillRect(0, 0, w, h);
+		fctx.fillStyle = "#12345678";
+		fctx.fillText(txt, 1.5, 23.5, w);
+		fctx.font = "19.5px 'Arial'";
+		fctx.fillStyle = "#789abcde";
+		fctx.fillText(txt, 1, 22, w);
+		fingerprint.update(fcanvas.dom.toDataURL())
+	} catch(ex) {
+		log('canvas test failed: ' + ex)
+	}
+	try { fingerprint.update(window.navigator.userAgent) } catch (ex) { log(ex) }
+	try { fingerprint.update(window.navigator.plugins) } catch (ex) { log(ex) }
+	try { fingerprint.update(window.navigator.mimeTypes) } catch (ex) { log(ex) }
+	try { fingerprint.update(window.navigator.language) } catch (ex) { log(ex) }
+	try { fingerprint.update(window.navigator.platform) } catch (ex) { log(ex) }
+	try { fingerprint.update(window.navigator.product) } catch (ex) { log(ex) }
+	try { fingerprint.update(window.navigator.productSub) } catch (ex) { log(ex) }
+	try { fingerprint.update(window.navigator.vendorSub) } catch (ex) { log(ex) }
+	try { fingerprint.update(window.navigator.hardwareConcurrency) } catch (ex) { log(ex) }
+
+	try { fingerprint.update(window.screen.availWidth) } catch (ex) { log(ex) }
+	try { fingerprint.update(window.screen.availHeight) } catch (ex) { log(ex) }
+	try { fingerprint.update(window.screen.colorDepth) } catch (ex) { log(ex) }
+}
 
 return exports;
 } )()
@@ -6366,6 +6724,7 @@ Player.prototype.setEventListeners = function() {
 	player.on('emptied', function() { log("Was emptied", dom.networkState); }.bind(ui))
 	player.on('volumechange', function() { ui.muted = dom.muted }.bind(ui))
 	player.on('canplaythrough', function() { log("ready to play"); ui.paused = dom.paused }.bind(ui))
+	player.on('suspend', function() { log('suspended'); ui.paused = true })
 
 	player.on('error', function() {
 		log("Player error occurred", dom.error, "src", ui.source)
@@ -6504,7 +6863,7 @@ Player.prototype.getFileExtension = function(filePath) {
 Player.prototype.setSource = function(url) {
 	this.ui.ready = false
 	this._extension = this.getFileExtension(url)
-	if (url && (this._extension === ".m3u8" || this._extension === ".m3u")) {
+	if (url && this._xhr && (this._extension === ".m3u8" || this._extension === ".m3u")) {
 		this._xhr.open('GET', url);
 		this._xhr.send()
 	}
@@ -6659,15 +7018,129 @@ exports.Player = Player
 
 return exports;
 } )()
+_globals.video.videojs.backend = (function() {/** @const */
+var exports = {};
+//=====[import video.videojs.backend]=====================
+
+var Player = function(ui) {
+	var player = ui._context.createElement('video')
+	player.dom.preload = "metadata"
+
+	player.setAttribute('preload', 'auto')
+	player.setAttribute('data-setup', '{}')
+	player.setAttribute('class', 'video-js')
+
+	this.element = player
+	this.ui = ui
+	this.setEventListeners()
+
+	var uniqueId = 'videojs' + this.element._uniqueId
+	player.setAttribute('id', uniqueId)
+
+	ui.element.remove()
+	ui.element = player
+	ui.parent.element.append(ui.element)
+
+	this.videojs = window.videojs(uniqueId)
+	this.videojs.width = 'auto'
+	this.videojs.height = 'auto'
+
+	var errorDisplay = document.getElementsByClassName("vjs-error-display")
+	if (errorDisplay && errorDisplay.length) {
+		for (var index = 0; index < errorDisplay.length; ++index) {
+			errorDisplay[index].style.display = 'none'
+		}
+	}
+
+	var videojsSpinner = document.getElementsByClassName("vjs-loading-spinner")
+	if (videojsSpinner && videojsSpinner.length) {
+		for (var index = 0; index < videojsSpinner.length; ++index) {
+			videojsSpinner[index].style.display = 'none'
+		}
+	}
+
+	var videojsControllButton = document.getElementsByClassName("vjs-control-bar")
+	if (videojsControllButton && videojsControllButton.length) {
+		for (var index = 0; index < videojsControllButton.length; ++index) {
+			videojsControllButton[index].style.display = 'none'
+		}
+	}
+
+	var videojsBigPlayButton = document.getElementsByClassName("vjs-big-play-button")
+	if (videojsBigPlayButton && videojsBigPlayButton.length) {
+		for (var index = 0; index < videojsBigPlayButton.length; ++index) {
+			videojsBigPlayButton[index].style.display = 'none'
+		}
+	}
+
+	this.videojsContaner = document.getElementById(uniqueId)
+	this.videojsContaner.style.zindex = -1
+}
+
+Player.prototype = Object.create(_globals.video.html5.backend.Player.prototype)
+
+Player.prototype.setSource = function(url) {
+	var media = { 'src': url }
+	log("SetSource", url)
+	if (url) {
+		var urlLower = url.toLowerCase()
+		var querryIndex = url.indexOf("?")
+		if (querryIndex >= 0)
+			urlLower = urlLower.substring(0, querryIndex)
+		var extIndex = urlLower.lastIndexOf(".")
+		var extension = urlLower.substring(extIndex, urlLower.length)
+		if (extension === ".m3u8" || extension === ".m3u")
+			media.type = 'application/x-mpegURL'
+		else if (extension === ".mpd")
+			media.type = 'application/dash+xml'
+	}
+	this.videojs.src(media, { html5: { hls: { withCredentials: true } }, fluid: true, preload: 'none', techOrder: ["html5"] })
+	if (this.ui.autoPlay)
+		this.play()
+}
+
+Player.prototype.play = function() {
+	var playPromise = this.element.dom.play()
+	if (playPromise !== undefined) {
+		playPromise.catch(function(e) {
+			log('play error:', e)
+			if (this.ui.autoPlay && e.code === DOMException.ABORT_ERR)
+				this.element.dom.play()
+		}.bind(this))
+	}
+}
+
+Player.prototype.setRect = function(l, t, r, b) {
+	this.videojsContaner.style.width = (r - l) + "px"
+	this.videojsContaner.style.height = (b - t) + "px"
+}
+
+exports.createPlayer = function(ui) {
+	return new Player(ui)
+}
+
+exports.probeUrl = function(url) {
+	return window.videojs ? 60 : 0
+}
+
+return exports;
+} )()
 _globals.web.device = (function() {/** @const */
 var exports = {};
 //=====[import web.device]=====================
 
 var Device = function(ui) {
 	var context = ui._context
-	var deviceString = context.system.os + "_" + context.system.browser
-	deviceString = deviceString.replace(/\s/g, '')
-	ui.deviceId = deviceString + "_" + Math.random().toString(36).substr(2, 9)
+	if ($manifest$system$fingerprint) {
+		var fingerprint = new $html5.fingerprint.fingerprint.Fingerprint()
+		context.backend.fingerprint(context, fingerprint)
+		ui.deviceId = fingerprint.finalize()
+		log("deviceId", ui.deviceId)
+	} else {
+		var deviceString = context.system.os + "_" + context.system.browser
+		deviceString = deviceString.replace(/\s/g, '')
+		ui.deviceId = deviceString + "_" + Math.random().toString(36).substr(2, 9)
+	}
 }
 
 exports.createDevice = function(ui) {
@@ -6702,11 +7175,9 @@ return exports;
 
 return exports;
 } )();
-try {
 	var l10n = {}
 
 	var context = qml._context = new qml.core.Context(null, false, {id: 'qml-context-app', l10n: l10n, nativeContext: null})
 	context.init()
 	context.start(new qml.src.UiApp(context))
 	context.run()
-} catch(ex) { log("qml initialization failed: ", ex, ex.stack) }
