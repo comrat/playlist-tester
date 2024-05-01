@@ -13,6 +13,16 @@ Item {
 		border.color: "#000";
 	}
 
+	TextAreaInput {
+		id: playlistResult;
+		width: 300;
+		height: 600;
+		anchors.left: playlistInput.right;
+		anchors.leftMargin: 20s;
+		border.width: 1;
+		border.color: "#000";
+	}
+
 	WebItem {
 		y: 160;
 		width: 200;
@@ -48,20 +58,15 @@ Item {
 		Text {
 			y: 5;
 			width: 100%;
-			text: "Get";
+			text: "Stop";
 			horizontalAlignment: Text.AlignHCenter;
 			font.pixelSize: 24;
 			color: "#000";
 		}
 
 		onClicked: {
-			var text = ""
-			var playlist = this.parent._workingPlaylists
-			for (var i = 0; i < playlist.length; ++i) {
-				text += "#EXTINF:-1," + playlist[i].title + "\n"
-				text += playlist[i].playlist + "\n"
-			}
-			playlistInput.text = text
+			main.count = 0
+			checkTimer.stop()
 		}
 	}
 
@@ -70,13 +75,18 @@ Item {
 		width: 200;
 		height: 150;
 		autoPlay: true;
+		volume: 0;
 
 		onError: { checkTimer.processNext() }
 
 		onReadyChanged: {
 			if (value) {
 				var parent = this.parent
-				parent._workingPlaylists.push(parent._data[parent.currentIndex - 1])
+				var row = parent._data[parent.currentIndex - 1]
+				parent._workingPlaylists.push(row)
+
+				playlistResult.text += "#EXTINF:-1," + row.title + "\n"
+				playlistResult.text += row.playlist + "\n"
 			}
 		}
 	}
