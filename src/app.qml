@@ -4,6 +4,29 @@ Item {
 	property int count;
 	anchors.fill: context;
 
+	VideoPlayer {
+		id: player;
+		width: 200;
+		height: 150;
+		clip: true;
+		backend: "videojs";
+		autoPlay: true;
+		volume: 0;
+
+		onError: { checkTimer.processNext() }
+
+		onReadyChanged: {
+			if (value) {
+				var parent = this.parent
+				var row = parent._data[parent.currentIndex - 1]
+				parent._workingPlaylists.push(row)
+
+				playlistResult.text += "#EXTINF:-1," + row.title + "\n"
+				playlistResult.text += row.playlist + "\n"
+			}
+		}
+	}
+
 	TextAreaInput {
 		id: playlistInput;
 		x: 230;
@@ -70,27 +93,6 @@ Item {
 		}
 	}
 
-	VideoPlayer {
-		id: player;
-		width: 200;
-		height: 150;
-		autoPlay: true;
-		volume: 0;
-
-		onError: { checkTimer.processNext() }
-
-		onReadyChanged: {
-			if (value) {
-				var parent = this.parent
-				var row = parent._data[parent.currentIndex - 1]
-				parent._workingPlaylists.push(row)
-
-				playlistResult.text += "#EXTINF:-1," + row.title + "\n"
-				playlistResult.text += row.playlist + "\n"
-			}
-		}
-	}
-
 	Timer {
 		id: checkTimer;
 		interval: 5000;
@@ -102,6 +104,10 @@ Item {
 				player.ready = false
 				player.source = parent._data[parent.currentIndex].playlist
 				++parent.currentIndex
+			} else {
+				log("Finish...")
+				player.source = ""
+				player.stop()
 			}
 			this.restart()
 		}
